@@ -26,21 +26,21 @@ cd ~/tradingview-mcp
 npm install
 ```
 
-### 2. Add to Claude Code MCP config
+### 2. Register with Claude Code
 
-Merge `mcp.json.example` into `~/.claude/.mcp.json`, replacing the path with the
-actual clone location:
+Use the `claude mcp` command — this is what the `/mcp` list actually reads
+(it stores the entry in `~/.claude.json`):
 
-```json
-{
-  "mcpServers": {
-    "tradingview": {
-      "command": "node",
-      "args": ["/absolute/path/to/tradingview-mcp/src/server.js"]
-    }
-  }
-}
+```bash
+claude mcp add tradingview --scope user -- node ~/tradingview-mcp/src/server.js
+claude mcp list   # should show: tradingview
 ```
+
+> Note: the upstream project's README suggests editing `~/.claude/.mcp.json`
+> directly, but Claude Code does not reliably read that path — if the server
+> doesn't show up in `/mcp`, this is why. Use `claude mcp add` instead.
+> `mcp.json.example` shows the equivalent JSON for project-scope `.mcp.json`
+> files.
 
 ### 3. Launch TradingView with the debug port
 
