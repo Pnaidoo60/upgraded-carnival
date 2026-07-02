@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TradingView × Claude — Signal Desk</title>
+  <style>
+    :root {
+      --bg: #0f1216;
+      --panel: #171b22;
+      --border: #262c36;
+      --text: #e6e9ef;
+      --muted: #8b94a3;
+      --buy: #26a69a;
+      --sell: #ef5350;
+      --hold: #d4a72c;
+      --accent: #6c8cff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 24px; border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--bg); z-index: 2;
+    }
+    header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+    header h1 span { color: var(--accent); }
+    .status { font-size: 13px; color: var(--muted); }
+    .status b { color: var(--text); font-weight: 600; }
+    main { max-width: 900px; margin: 0 auto; padding: 24px; }
+    .empty { color: var(--muted); text-align: center; padding: 64px 0; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 10px; padding: 16px 18px; margin-bottom: 14px;
+    }
+    .card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .pill {
+      font-size: 12px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em; padding: 3px 10px; border-radius: 999px;
+    }
+    .pill.buy { background: rgba(38,166,154,.15); color: var(--buy); }
+    .pill.sell { background: rgba(239,83,80,.15); color: var(--sell); }
+    .pill.hold, .pill.close, .pill.ignore { background: rgba(212,167,44,.15); color: var(--hold); }
+    .pill.analyzing, .pill.no_api_key, .pill.error {
+      background: rgba(139,148,163,.15); color: var(--muted);
+    }
+    .sym { font-weight: 600; font-size: 15px; }
+    .time { margin-left: auto; color: var(--muted); font-size: 12px; }
+    .conf { color: var(--muted); font-size: 13px; }
+    .reasoning { color: var(--text); margin: 8px 0 12px; }
+    .reasoning.muted { color: var(--muted); font-style: italic; }
+    pre {
+      background: #0b0e12; border: 1px solid var(--border); border-radius: 6px;
+      padding: 10px 12px; margin: 0; overflow-x: auto; font-size: 12px;
+      color: var(--muted);
+    }
+    .spinner {
+      width: 12px; height: 12px; border: 2px solid var(--border);
+      border-top-color: var(--accent); border-radius: 50%;
+      display: inline-block; animation: spin .8s linear infinite; vertical-align: -1px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TradingView <span>×</span> Claude — Signal Desk</h1>
+    <div class="status" id="status">connecting…</div>
+  </header>
+  <main id="feed"><div class="empty">Loading…</div></main>
+
+  <script>
+    const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    function render(data) {
+      const status = document.getElementById('status');
+      status.innerHTML = data.configured
+        ? `Claude <b>${esc(data.model)}</b> · ${data.signals.length} signal(s)`
+        : `<b>ANTHROPIC_API_KEY not set</b> — recording only`;
+
+      const feed = document.getElementById('feed');
+      if (!data.signals.length) {
+        feed.innerHTML = '<div class="empty">No signals yet. Fire a TradingView alert (or run <code>npm run test:signal</code>).</div>';
+        return;
+      }
+
+      feed.innerHTML = data.signals.map((s) => {
+        const a = s.analysis;
+        const action = a ? a.action : s.status;
+        const sym = s.payload.symbol || s.payload.ticker || 'unknown';
+        const when = new Date(s.receivedAt).toLocaleTimeString();
+
+        let body;
+        if (s.status === 'analyzing') {
+          body = `<div class="reasoning muted"><span class="spinner"></span> Claude is analyzing…</div>`;
+        } else if (s.status === 'no_api_key') {
+          body = `<div class="reasoning muted">Recorded. Set ANTHROPIC_API_KEY to enable analysis.</div>`;
+        } else if (s.status === 'error') {
+          body = `<div class="reasoning muted">Analysis error: ${esc(s.error)}</div>`;
+        } else if (a) {
+          body = `<div class="reasoning">${esc(a.reasoning)}</div>`;
+        } else {
+          body = '';
+        }
+
+        const conf = a
+          ? `<span class="conf">confidence ${(a.confidence * 100).toFixed(0)}% · risk ${esc(a.risk_level)}</span>`
+          : '';
+
+        return `<div class="card">
+          <div class="card-top">
+            <span class="pill ${esc(action)}">${esc(action)}</span>
+            <span class="sym">${esc(sym)}</span>
+            ${conf}
+            <span class="time">${esc(when)}</span>
+          </div>
+          ${body}
+          <pre>${esc(JSON.stringify(s.payload))}</pre>
+        </div>`;
+      }).join('');
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch('/api/signals');
+        render(await res.json());
+      } catch (e) {
+        document.getElementById('status').textContent = 'offline — retrying…';
+      }
+    }
+    poll();
+    setInterval(poll, 2000);
+  </script>
+</body>
+</html>

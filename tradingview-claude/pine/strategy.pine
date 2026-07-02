@@ -1,0 +1,38 @@
+//@version=5
+// Example TradingView strategy that fires a JSON webhook alert on an SMA
+// crossover. Paste this into the Pine editor, add it to a chart, then create
+// an alert with "Any alert() function call" as the condition and your
+// forwarder's public URL (e.g. https://your-host/webhook) as the webhook URL.
+//
+// The alert() message below is already valid JSON. If you set WEBHOOK_SECRET
+// in your .env, add a matching "secret" field here.
+indicator("Claude Signal — SMA Crossover", overlay=true)
+
+fastLen = input.int(10, "Fast SMA")
+slowLen = input.int(30, "Slow SMA")
+
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+
+plot(fast, "Fast", color.new(color.aqua, 0))
+plot(slow, "Slow", color.new(color.orange, 0))
+
+buySignal  = ta.crossover(fast, slow)
+sellSignal = ta.crossunder(fast, slow)
+
+// Build a JSON payload. {{...}} placeholders are filled in by TradingView,
+// but here we assemble it in Pine so the same script covers buy and sell.
+makePayload(side) =>
+    '{"symbol":"' + syminfo.tickerid +
+    '","timeframe":"' + timeframe.period +
+    '","price":' + str.tostring(close) +
+    ',"side":"' + side +
+    '","strategy":"SMA ' + str.tostring(fastLen) + '/' + str.tostring(slowLen) + ' crossover"' +
+    // ',"secret":"YOUR_WEBHOOK_SECRET"' +   // uncomment + set to match .env
+    '}'
+
+if buySignal
+    alert(makePayload("buy"), alert.freq_once_per_bar_close)
+
+if sellSignal
+    alert(makePayload("sell"), alert.freq_once_per_bar_close)
