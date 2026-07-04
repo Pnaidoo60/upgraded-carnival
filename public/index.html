@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TradingView × Claude — Signal Dashboard</title>
+<style>
+  :root {
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-buy:     #008300;  /* categorical green */
+    --series-sell:    #e34948;  /* categorical red */
+    --series-hold:    #eda100;  /* categorical yellow */
+    --series-line:    #2a78d6;  /* categorical blue */
+    --delta-good:     #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-buy:     #008300;
+      --series-sell:    #e66767;
+      --series-hold:    #c98500;
+      --series-line:    #3987e5;
+      --delta-good:     #0ca30c;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  header h1 { font-size: 20px; font-weight: 650; margin: 0; }
+  .mode-badge {
+    font-size: 12px; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
+  }
+  .mode-badge b { color: var(--text-primary); font-weight: 600; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .tile .label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .tile .value { font-size: 28px; font-weight: 650; }
+  .tile .sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+  @media (max-width: 780px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; margin-bottom: 12px; position: relative;
+  }
+  .card h2 { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .card .desc { font-size: 12px; color: var(--text-muted); margin: 0 0 12px; }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; }
+  .legend .key { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  svg { display: block; width: 100%; height: auto; }
+  svg text { font-family: inherit; }
+  .axis-label { font-size: 10.5px; fill: var(--text-muted); }
+  .grid-line { stroke: var(--gridline); stroke-width: 1; }
+  .base-line { stroke: var(--baseline); stroke-width: 1; }
+  .direct-label { font-size: 11px; fill: var(--text-secondary); }
+
+  .tooltip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+    padding: 8px 10px; font-size: 12px; color: var(--text-primary); max-width: 260px;
+  }
+  .tooltip .t-title { font-weight: 600; margin-bottom: 3px; }
+  .tooltip .t-row { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); }
+  .tooltip .t-row .swatch { width: 8px; height: 8px; border-radius: 2px; }
+  .tooltip .t-row b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+       color: var(--text-muted); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--gridline); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--gridline); vertical-align: top; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .muted { color: var(--text-muted); }
+  .summary-cell { color: var(--text-secondary); max-width: 380px; }
+  .empty { color: var(--text-muted); text-align: center; padding: 28px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>TradingView × Claude — Signal Dashboard</h1>
+    <span class="mode-badge" id="modeBadge">connecting…</span>
+  </header>
+
+  <div class="kpi-row" id="kpis"></div>
+
+  <div class="card">
+    <h2>Signals over time</h2>
+    <p class="desc">Analyzed alerts bucketed by arrival time, split by recommended action.</p>
+    <div class="legend" id="timeLegend"></div>
+    <div id="timeChart"></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Confidence over time</h2>
+      <p class="desc">Claude's confidence per analyzed signal (0–1).</p>
+      <div id="confChart"></div>
+    </div>
+    <div class="card">
+      <h2>Action distribution</h2>
+      <p class="desc">Share of analyzed signals by action.</p>
+      <div id="distChart"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Recent signals</h2>
+    <p class="desc">Newest first. Full detail of each alert and its Claude analysis.</p>
+    <div style="overflow-x:auto">
+      <table id="signalTable">
+        <thead>
+          <tr><th>Time</th><th>Symbol</th><th>Alert side</th><th>Price</th><th>Action</th><th>Conf.</th><th>Risk</th><th>Assessment</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="tableEmpty" hidden>No signals yet — point a TradingView alert webhook at <code>POST /webhook</code>.</div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const ACTIONS = [
+  { key: "buy",  label: "Buy",  cssVar: "--series-buy"  },
+  { key: "sell", label: "Sell", cssVar: "--series-sell" },
+  { key: "hold", label: "Hold", cssVar: "--series-hold" },
+];
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const tooltip = document.getElementById("tooltip");
+
+function showTooltip(html, x, y) {
+  tooltip.innerHTML = html;
+  tooltip.style.display = "block";
+  const pad = 12;
+  const r = tooltip.getBoundingClientRect();
+  let left = x + pad, top = y + pad;
+  if (left + r.width > window.innerWidth - 8) left = x - r.width - pad;
+  if (top + r.height > window.innerHeight - 8) top = y - r.height - pad;
+  tooltip.style.left = left + "px";
+  tooltip.style.top = top + "px";
+}
+function hideTooltip() { tooltip.style.display = "none"; }
+
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtDateTime = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function refresh() {
+  try {
+    const [health, stats, signalsRes] = await Promise.all([
+      fetch("/health").then((r) => r.json()),
+      fetch("/api/stats").then((r) => r.json()),
+      fetch("/api/signals?limit=200").then((r) => r.json()),
+    ]);
+    const signals = signalsRes.signals || [];
+    renderMode(health);
+    renderKpis(stats);
+    renderTimeChart(signals);
+    renderConfChart(signals);
+    renderDistChart(stats);
+    renderTable(signals.slice(0, 25));
+  } catch (err) {
+    document.getElementById("modeBadge").textContent = "connection lost — retrying";
+  }
+}
+
+function renderMode(health) {
+  const el = document.getElementById("modeBadge");
+  el.innerHTML = health.mode === "live"
+    ? 'analysis: <b>Claude (live)</b>'
+    : 'analysis: <b>mock</b> — set ANTHROPIC_API_KEY for live Claude analysis';
+}
+
+function renderKpis(stats) {
+  const tiles = [
+    { label: "Total signals", value: stats.total, sub: stats.pending ? stats.pending + " pending" : "" },
+    { label: "Buy calls", value: stats.byAction.buy, sub: "" },
+    { label: "Sell calls", value: stats.byAction.sell, sub: "" },
+    { label: "Hold calls", value: stats.byAction.hold, sub: "" },
+    { label: "Avg confidence", value: stats.avgConfidence == null ? "—" : (stats.avgConfidence * 100).toFixed(0) + "%",
+      sub: stats.analyzed + " analyzed" },
+  ];
+  document.getElementById("kpis").innerHTML = tiles.map((t) =>
+    `<div class="tile"><div class="label">${t.label}</div><div class="value">${t.value}</div>` +
+    (t.sub ? `<div class="sub">${t.sub}</div>` : "") + `</div>`).join("");
+}
+
+// ---- Signals over time: stacked columns ----
+function renderTimeChart(signals) {
+  const el = document.getElementById("timeChart");
+  const analyzed = signals.filter((s) => s.analysisStatus === "done" && s.analysis).reverse(); // oldest → newest
+  document.getElementById("timeLegend").innerHTML = ACTIONS.map((a) =>
+    `<span class="key"><span class="swatch" style="background:var(${a.cssVar})"></span>${a.label}</span>`).join("");
+  if (!analyzed.length) { el.innerHTML = '<div class="empty">No analyzed signals yet.</div>'; return; }
+
+  const times = analyzed.map((s) => new Date(s.receivedAt).getTime());
+  const min = Math.min(...times), max = Math.max(...times);
+  const BUCKETS = 16;
+  const span = Math.max(max - min, 60_000);
+  const step = span / BUCKETS;
+  const buckets = Array.from({ length: BUCKETS }, (_, i) => ({
+    t0: min + i * step, buy: 0, sell: 0, hold: 0,
+  }));
+  for (const s of analyzed) {
+    const i = Math.min(BUCKETS - 1, Math.floor((new Date(s.receivedAt).getTime() - min) / step));
+    const a = s.analysis.action;
+    if (a in buckets[i]) buckets[i][a]++;
+  }
+
+  const W = 720, H = 200, padL = 30, padR = 8, padT = 8, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxTotal = Math.max(1, ...buckets.map((b) => b.buy + b.sell + b.hold));
+  const yTicks = niceTicks(maxTotal);
+  const colW = plotW / BUCKETS;
+  const barW = Math.max(4, colW - 6);
+  const y = (v) => padT + plotH - (v / yTicks.max) * plotH;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Signals over time by action">`;
+  for (const t of yTicks.ticks) {
+    svg += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y(t)}" y2="${y(t)}"/>` +
+           `<text class="axis-label" x="${padL - 6}" y="${y(t) + 3.5}" text-anchor="end">${t}</text>`;
+  }
+  svg += `<line class="base-line" x1="${padL}" x2="${W - padR}" y1="${y(0)}" y2="${y(0)}"/>`;
+
+  buckets.forEach((b, i) => {
+    const x = padL + i * colW + (colW - barW) / 2;
+    let acc = 0;
+    const segs = [];
+    for (const a of ACTIONS) {
+      const v = b[a.key];
+      if (!v) continue;
+      const y1 = y(acc + v), h = y(acc) - y(acc + v);
+      segs.push({ a, v, y1, h });
+      acc += v;
+    }
+    segs.forEach((seg, j) => {
+      const isTop = j === segs.length - 1;
+      const r = isTop ? 4 : 0;
+      // 2px surface gap between stacked segments (skip below the bottom segment)
+      const gap = j > 0 ? 1 : 0;
+      svg += `<rect data-bucket="${i}" x="${x}" y="${seg.y1 + gap}" width="${barW}" height="${Math.max(0.5, seg.h - gap)}"` +
+             ` rx="${r}" ry="${r}" fill="var(${seg.a.cssVar})"/>`;
+      if (r) { // square off bottom corners of the rounded top segment
+        const yb = seg.y1 + seg.h;
+        if (seg.h > r) svg += `<rect data-bucket="${i}" x="${x}" y="${Math.max(seg.y1 + gap, yb - r)}" width="${barW}" height="${Math.min(r, seg.h - gap)}" fill="var(${seg.a.cssVar})"/>`;
+      }
+    });
+    // invisible hover target covering the full column
+    svg += `<rect data-hover="${i}" x="${padL + i * colW}" y="${padT}" width="${colW}" height="${plotH}" fill="transparent"/>`;
+  });
+
+  // x labels: first, middle, last bucket times
+  [0, Math.floor(BUCKETS / 2), BUCKETS - 1].forEach((i) => {
+    const x = padL + i * colW + colW / 2;
+    svg += `<text class="axis-label" x="${x}" y="${H - 6}" text-anchor="middle">${fmtTime(new Date(buckets[i].t0).toISOString())}</text>`;
+  });
+  svg += "</svg>";
+  el.innerHTML = svg;
+
+  el.querySelector("svg").addEventListener("mousemove", (e) => {
+    const t = e.target.closest("[data-hover],[data-bucket]");
+    if (!t) return hideTooltip();
+    const i = Number(t.dataset.hover ?? t.dataset.bucket);
+    const b = buckets[i];
+    const rows = ACTIONS.map((a) =>
+      `<div class="t-row"><span class="swatch" style="background:var(${a.cssVar})"></span>${a.label} <b>${b[a.key]}</b></div>`).join("");
+    showTooltip(`<div class="t-title">${fmtDateTime(new Date(b.t0).toISOString())}</div>${rows}`, e.clientX, e.clientY);
+  });
+  el.querySelector("svg").addEventListener("mouseleave", hideTooltip);
+}
+
+// ---- Confidence line chart with crosshair ----
+function renderConfChart(signals) {
+  const el = document.getElementById("confChart");
+  const pts = signals
+    .filter((s) => s.analysisStatus === "done" && s.analysis && typeof s.analysis.confidence === "number")
+    .reverse()
+    .map((s) => ({ t: new Date(s.receivedAt).getTime(), v: s.analysis.confidence, s }));
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">Need at least two analyzed signals.</div>'; return; }
+
+  const W = 460, H = 190, padL = 34, padR = 10, padT = 10, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const t0 = pts[0].t, t1 = Math.max(pts[pts.length - 1].t, t0 + 1);
+  const x = (t) => padL + ((t - t0) / (t1 - t0)) * plotW;
+  const y = (v) => padT + plotH - v * plotH;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Confidence over time">`;
+  for (const tick of [0, 0.5, 1]) {
+    svg += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y(tick)}" y2="${y(tick)}"/>` +
+           `<text class="axis-label" x="${padL - 6}" y="${y(tick) + 3.5}" text-anchor="end">${tick}</text>`;
+  }
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  svg += `<path d="${d}" fill="none" stroke="var(--series-line)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  svg += `<line id="confCrosshair" y1="${padT}" y2="${padT + plotH}" stroke="var(--baseline)" stroke-width="1" visibility="hidden"/>`;
+  svg += `<circle id="confDot" r="4" fill="var(--series-line)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  [t0, t1].forEach((t, i) => {
+    svg += `<text class="axis-label" x="${i ? W - padR : padL}" y="${H - 6}" text-anchor="${i ? "end" : "start"}">${fmtTime(new Date(t).toISOString())}</text>`;
+  });
+  svg += "</svg>";
+  el.innerHTML = svg;
+
+  const svgEl = el.querySelector("svg");
+  svgEl.addEventListener("mousemove", (e) => {
+    const rect = svgEl.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) / rect.width) * W;
+    let best = pts[0], bd = Infinity;
+    for (const p of pts) { const dd = Math.abs(x(p.t) - mx); if (dd < bd) { bd = dd; best = p; } }
+    const cx = x(best.t), cy = y(best.v);
+    const cross = svgEl.querySelector("#confCrosshair");
+    cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+    const dot = svgEl.querySelector("#confDot");
+    dot.setAttribute("cx", cx); dot.setAttribute("cy", cy); dot.setAttribute("visibility", "visible");
+    const a = best.s.analysis;
+    showTooltip(
+      `<div class="t-title">${esc(best.s.alert.symbol || best.s.alert.ticker || "signal #" + best.s.id)}</div>` +
+      `<div class="t-row">confidence <b>${(best.v * 100).toFixed(0)}%</b></div>` +
+      `<div class="t-row">action <b>${esc(a.action)}</b></div>` +
+      `<div class="t-row">${fmtDateTime(best.s.receivedAt)}</div>`,
+      e.clientX, e.clientY);
+  });
+  svgEl.addEventListener("mouseleave", () => {
+    hideTooltip();
+    svgEl.querySelector("#confCrosshair").setAttribute("visibility", "hidden");
+    svgEl.querySelector("#confDot").setAttribute("visibility", "hidden");
+  });
+}
+
+// ---- Action distribution: horizontal bars with direct labels ----
+function renderDistChart(stats) {
+  const el = document.getElementById("distChart");
+  const total = ACTIONS.reduce((n, a) => n + (stats.byAction[a.key] || 0), 0);
+  if (!total) { el.innerHTML = '<div class="empty">No analyzed signals yet.</div>'; return; }
+
+  const W = 320, rowH = 34, padL = 44, padR = 46, H = ACTIONS.length * rowH + 8;
+  const plotW = W - padL - padR;
+  const maxV = Math.max(...ACTIONS.map((a) => stats.byAction[a.key] || 0), 1);
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Action distribution">`;
+  ACTIONS.forEach((a, i) => {
+    const v = stats.byAction[a.key] || 0;
+    const w = Math.max(v ? 3 : 0, (v / maxV) * plotW);
+    const yMid = i * rowH + rowH / 2 + 4;
+    svg += `<text class="direct-label" x="${padL - 8}" y="${yMid + 4}" text-anchor="end">${a.label}</text>`;
+    if (v) svg += `<rect x="${padL}" y="${yMid - 7}" width="${w}" height="14" rx="4" ry="4" fill="var(${a.cssVar})"` +
+                  ` data-dist="${a.key}"/>`;
+    svg += `<text class="direct-label" x="${padL + w + 8}" y="${yMid + 4}">${v} · ${((v / total) * 100).toFixed(0)}%</text>`;
+  });
+  svg += "</svg>";
+  el.innerHTML = svg;
+}
+
+// ---- Table ----
+function renderTable(signals) {
+  const tbody = document.querySelector("#signalTable tbody");
+  const empty = document.getElementById("tableEmpty");
+  empty.hidden = signals.length > 0;
+  tbody.innerHTML = signals.map((s) => {
+    const a = s.analysis;
+    const alert = s.alert || {};
+    const action = s.analysisStatus === "done" && a
+      ? `<span class="pill"><span class="dot" style="background:var(--series-${esc(a.action)})"></span>${esc(a.action)}</span>`
+      : `<span class="muted">${esc(s.analysisStatus)}</span>`;
+    return `<tr>
+      <td class="num">${fmtDateTime(s.receivedAt)}</td>
+      <td>${esc(alert.symbol || alert.ticker || "—")}</td>
+      <td>${esc(alert.side || alert.action || "—")}</td>
+      <td class="num">${alert.price != null ? esc(alert.price) : "—"}</td>
+      <td>${action}</td>
+      <td class="num">${a && typeof a.confidence === "number" ? (a.confidence * 100).toFixed(0) + "%" : "—"}</td>
+      <td>${a && a.risk ? esc(a.risk) : "—"}</td>
+      <td class="summary-cell">${a ? esc(a.summary || a.error || "") : ""}</td>
+    </tr>`;
+  }).join("");
+}
+
+function niceTicks(max) {
+  const step = Math.max(1, Math.ceil(max / 4));
+  const top = step * Math.ceil(max / step);
+  const ticks = [];
+  for (let t = 0; t <= top; t += step) ticks.push(t);
+  return { max: top, ticks };
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
