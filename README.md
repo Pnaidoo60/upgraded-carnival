@@ -43,6 +43,8 @@ Then open http://localhost:3000 — the dashboard polls every 5 seconds.
 | POST   | `/webhook`     | TradingView alert intake (responds 200 immediately, analyzes async) |
 | GET    | `/api/signals` | Recent signals + analyses (`?limit=N`, max 500)     |
 | GET    | `/api/stats`   | Aggregates: totals, action counts, avg confidence   |
+| GET    | `/api/portfolio` | Paper-trading portfolio: equity, positions, trades, decision log |
+| POST   | `/api/portfolio/reset` | Reset the paper portfolio (requires `X-Webhook-Secret` when a secret is configured) |
 | GET    | `/health`      | Liveness + analysis mode (`live` / `mock`)          |
 | GET    | `/`            | Dashboard                                           |
 
@@ -77,6 +79,36 @@ model `claude-opus-4-8`) with a JSON-schema-constrained output
 
 The system prompt instructs Claude to be conservative — thin or ambiguous
 payloads get `hold` with low confidence and an explanation of what's missing.
+
+## Paper trading simulator
+
+Every analyzed signal is fed to a built-in **paper broker** (`lib/paper.js`)
+that maintains a virtual portfolio — ZAR by default (`PAPER_CURRENCY=R`).
+**No real orders are ever placed.**
+
+Rules and guardrails:
+
+- Trades execute only when Claude's confidence ≥ `PAPER_MIN_CONFIDENCE` (default 60%).
+- Buys spend `PAPER_POSITION_PCT` of equity (default 10%), capped at
+  `PAPER_MAX_POSITION_PCT` per symbol (default 25%). Fractional quantities are
+  supported, EasyEquities-style.
+- Sells close the full position and realize P&L.
+- `PAPER_ENABLED=false` is a kill switch — signals are still evaluated and
+  logged, but nothing executes.
+- Every decision (executed *or* skipped) is logged with its reason and shown
+  on the dashboard, alongside the equity curve, open positions, realized /
+  unrealized P&L, and win rate.
+
+### Why not a real EasyEquities paper account?
+
+EasyEquities has **no official public trading API** — its APIs are
+partner-only (Capitec / Discovery / Telkom integrations). Community clients
+exist but are unofficial, read-oriented, and order placement through them
+would be fragile and against the platform's terms. The simulator is therefore
+the safe implementation for South African users today. `lib/paper.js` is
+written as a broker adapter, so if EasyEquities (or another broker with a
+paper environment, e.g. Alpaca) opens an API, a real adapter can replace the
+simulator without touching the signal pipeline or dashboard.
 
 ## Security notes
 

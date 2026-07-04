@@ -14,14 +14,17 @@ import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { SignalStore } from "./lib/store.js";
 import { analyzeSignal, isLiveMode } from "./lib/analyzer.js";
+import { PaperBroker } from "./lib/paper.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data", "signals.json");
+const PORTFOLIO_FILE = process.env.PORTFOLIO_FILE || path.join(path.dirname(DATA_FILE), "portfolio.json");
 const MAX_BODY_BYTES = 64 * 1024;
 
 const store = new SignalStore(DATA_FILE);
+const broker = new PaperBroker(PORTFOLIO_FILE);
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -90,6 +93,7 @@ async function handleWebhook(req, res) {
   try {
     const analysis = await analyzeSignal(alert);
     store.setAnalysis(signal.id, analysis, "done");
+    broker.onSignal(signal, analysis);
   } catch (err) {
     console.error(`analysis failed for signal ${signal.id}:`, err.message);
     store.setAnalysis(signal.id, { error: err.message }, "failed");
@@ -120,8 +124,23 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/stats") {
       return json(res, 200, store.stats());
     }
+    if (req.method === "GET" && url.pathname === "/api/portfolio") {
+      return json(res, 200, broker.snapshot());
+    }
+    if (req.method === "POST" && url.pathname === "/api/portfolio/reset") {
+      const provided = req.headers["x-webhook-secret"];
+      if (!secretMatches(typeof provided === "string" ? provided : "")) {
+        return json(res, 401, { error: "invalid secret" });
+      }
+      await broker.reset();
+      return json(res, 200, { ok: true });
+    }
     if (req.method === "GET" && url.pathname === "/health") {
-      return json(res, 200, { ok: true, mode: isLiveMode() ? "live" : "mock" });
+      return json(res, 200, {
+        ok: true,
+        mode: isLiveMode() ? "live" : "mock",
+        paperTrading: broker.config.enabled,
+      });
     }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return await serveDashboard(res);
@@ -134,6 +153,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 await store.load();
+await broker.load();
 server.listen(PORT, () => {
   console.log(`TradingView x Claude dashboard listening on http://localhost:${PORT}`);
   console.log(`Analysis mode: ${isLiveMode() ? "live (Claude API)" : "mock (set ANTHROPIC_API_KEY for live analysis)"}`);

@@ -123,6 +123,45 @@ test("stats aggregate analyzed signals", async () => {
   assert.ok(stats.lastSignalAt);
 });
 
+test("paper portfolio executes confident signals and exposes /api/portfolio", async () => {
+  // buy SOLUSD (rich payload → mock confidence 0.88 ≥ 0.6 threshold)
+  let res = await fetch(`${BASE}/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: "test-secret", symbol: "SOLUSD", side: "buy", price: 150, timeframe: "1h", strategy: "test" }),
+  });
+  await waitForAnalysis((await res.json()).id);
+
+  // sell it at a higher price → realized profit
+  res = await fetch(`${BASE}/webhook`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ secret: "test-secret", symbol: "SOLUSD", side: "sell", price: 165, timeframe: "1h", strategy: "test" }),
+  });
+  await waitForAnalysis((await res.json()).id);
+
+  const p = await (await fetch(`${BASE}/api/portfolio`)).json();
+  assert.equal(p.broker, "paper");
+  assert.equal(p.currency, "R");
+  assert.ok(p.closedTrades >= 1);
+  assert.ok(p.realizedPnl > 0, "sell above buy price realizes profit");
+  assert.ok(p.decisions.length >= 2);
+  assert.ok(p.decisions.some((d) => d.executed && d.action === "buy"));
+  assert.ok(p.decisions.some((d) => d.executed && d.action === "sell"));
+  assert.ok(p.equityCurve.length >= 2);
+
+  // reset requires the shared secret
+  const denied = await fetch(`${BASE}/api/portfolio/reset`, { method: "POST" });
+  assert.equal(denied.status, 401);
+  const okRes = await fetch(`${BASE}/api/portfolio/reset`, {
+    method: "POST",
+    headers: { "X-Webhook-Secret": "test-secret" },
+  });
+  assert.equal(okRes.status, 200);
+  const fresh = await (await fetch(`${BASE}/api/portfolio`)).json();
+  assert.equal(fresh.closedTrades, 0);
+});
+
 test("serves the dashboard and enforces payload size limit", async () => {
   const page = await fetch(`${BASE}/`);
   assert.equal(page.status, 200);

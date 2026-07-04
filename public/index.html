@@ -141,6 +141,37 @@
   </div>
 
   <div class="card">
+    <h2>Paper trading <span class="mode-badge" id="paperBadge" style="margin-left:6px"></span></h2>
+    <p class="desc" id="paperDesc">Simulated portfolio driven by Claude's signals — no real orders are placed.</p>
+    <div class="kpi-row" id="paperKpis"></div>
+    <div class="grid-2">
+      <div>
+        <h2 style="margin-top:8px">Equity curve</h2>
+        <div id="equityChart"></div>
+      </div>
+      <div>
+        <h2 style="margin-top:8px">Open positions</h2>
+        <div style="overflow-x:auto">
+          <table id="positionsTable">
+            <thead><tr><th>Symbol</th><th>Qty</th><th>Avg price</th><th>Last</th><th>Value</th><th>P&amp;L</th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="empty" id="positionsEmpty" hidden>No open positions.</div>
+        </div>
+      </div>
+    </div>
+    <h2 style="margin-top:16px">Trade decisions</h2>
+    <p class="desc">Every analyzed signal is evaluated — executed or skipped, with the reason.</p>
+    <div style="overflow-x:auto">
+      <table id="decisionsTable">
+        <thead><tr><th>Time</th><th>Symbol</th><th>Action</th><th>Conf.</th><th>Result</th><th>Reason</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="decisionsEmpty" hidden>No decisions yet.</div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Recent signals</h2>
     <p class="desc">Newest first. Full detail of each alert and its Claude analysis.</p>
     <div style="overflow-x:auto">
@@ -185,10 +216,11 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 async function refresh() {
   try {
-    const [health, stats, signalsRes] = await Promise.all([
+    const [health, stats, signalsRes, portfolio] = await Promise.all([
       fetch("/health").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/signals?limit=200").then((r) => r.json()),
+      fetch("/api/portfolio").then((r) => r.json()),
     ]);
     const signals = signalsRes.signals || [];
     renderMode(health);
@@ -196,6 +228,7 @@ async function refresh() {
     renderTimeChart(signals);
     renderConfChart(signals);
     renderDistChart(stats);
+    renderPaper(portfolio);
     renderTable(signals.slice(0, 25));
   } catch (err) {
     document.getElementById("modeBadge").textContent = "connection lost — retrying";
@@ -385,6 +418,129 @@ function renderDistChart(stats) {
   });
   svg += "</svg>";
   el.innerHTML = svg;
+}
+
+// ---- Paper trading ----
+function fmtMoney(v, cur) {
+  const sign = v < 0 ? "−" : "";
+  return `${sign}${cur} ${Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function fmtQty(v) {
+  return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function renderPaper(p) {
+  const cur = p.currency || "R";
+  document.getElementById("paperBadge").innerHTML = p.enabled
+    ? "simulator <b>on</b>"
+    : "simulator <b>off</b> (kill switch)";
+  document.getElementById("paperDesc").textContent =
+    `Simulated ${cur} portfolio driven by Claude's signals — no real orders are placed. ` +
+    `Trades execute above ${(p.config.minConfidence * 100).toFixed(0)}% confidence, ` +
+    `${(p.config.positionPct * 100).toFixed(0)}% of equity per buy, ` +
+    `${(p.config.maxPositionPct * 100).toFixed(0)}% max per symbol.`;
+
+  const ret = p.totalReturnPct;
+  const retStr = `${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`;
+  const tiles = [
+    { label: "Equity", value: fmtMoney(p.equity, cur),
+      sub: `<span style="color:${ret >= 0 ? "var(--delta-good)" : "var(--series-sell)"}">${retStr}</span> vs start` },
+    { label: "Cash", value: fmtMoney(p.cash, cur), sub: "" },
+    { label: "Realized P&L", value: fmtMoney(p.realizedPnl, cur), sub: `${p.closedTrades} closed` },
+    { label: "Unrealized P&L", value: fmtMoney(p.unrealizedPnl, cur), sub: `${p.positions.length} open` },
+    { label: "Win rate", value: p.winRate == null ? "—" : (p.winRate * 100).toFixed(0) + "%",
+      sub: p.winRate == null ? "no closed trades" : "" },
+  ];
+  document.getElementById("paperKpis").innerHTML = tiles.map((t) =>
+    `<div class="tile"><div class="label">${t.label}</div><div class="value" style="font-size:22px">${t.value}</div>` +
+    (t.sub ? `<div class="sub">${t.sub}</div>` : "") + `</div>`).join("");
+
+  renderEquityChart(p);
+  renderPositions(p, cur);
+  renderDecisions(p);
+}
+
+function renderEquityChart(p) {
+  const el = document.getElementById("equityChart");
+  const pts = (p.equityCurve || []).map((d) => ({ t: new Date(d.t).getTime(), v: d.equity }));
+  if (pts.length < 2) { el.innerHTML = '<div class="empty">Waiting for trades…</div>'; return; }
+
+  const W = 460, H = 180, padL = 58, padR = 10, padT = 10, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const t0 = pts[0].t, t1 = Math.max(pts[pts.length - 1].t, t0 + 1);
+  let vMin = Math.min(...pts.map((d) => d.v)), vMax = Math.max(...pts.map((d) => d.v));
+  const padV = Math.max((vMax - vMin) * 0.1, vMax * 0.005, 1);
+  vMin -= padV; vMax += padV;
+  const x = (t) => padL + ((t - t0) / (t1 - t0)) * plotW;
+  const y = (v) => padT + plotH - ((v - vMin) / (vMax - vMin)) * plotH;
+  const fmtTick = (v) => (p.currency || "R") + " " + Math.round(v).toLocaleString();
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Portfolio equity over time">`;
+  for (const tv of [vMin + padV, (vMin + vMax) / 2, vMax - padV]) {
+    svg += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y(tv)}" y2="${y(tv)}"/>` +
+           `<text class="axis-label" x="${padL - 6}" y="${y(tv) + 3.5}" text-anchor="end">${fmtTick(tv)}</text>`;
+  }
+  const d = pts.map((pt, i) => `${i ? "L" : "M"}${x(pt.t).toFixed(1)},${y(pt.v).toFixed(1)}`).join("");
+  svg += `<path d="${d}" fill="none" stroke="var(--series-line)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  svg += `<circle id="eqDot" r="4" fill="var(--series-line)" stroke="var(--surface-1)" stroke-width="2" visibility="hidden"/>`;
+  [t0, t1].forEach((t, i) => {
+    svg += `<text class="axis-label" x="${i ? W - padR : padL}" y="${H - 6}" text-anchor="${i ? "end" : "start"}">${fmtTime(new Date(t).toISOString())}</text>`;
+  });
+  svg += "</svg>";
+  el.innerHTML = svg;
+
+  const svgEl = el.querySelector("svg");
+  svgEl.addEventListener("mousemove", (e) => {
+    const rect = svgEl.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) / rect.width) * W;
+    let best = pts[0], bd = Infinity;
+    for (const pt of pts) { const dd = Math.abs(x(pt.t) - mx); if (dd < bd) { bd = dd; best = pt; } }
+    const dot = svgEl.querySelector("#eqDot");
+    dot.setAttribute("cx", x(best.t)); dot.setAttribute("cy", y(best.v)); dot.setAttribute("visibility", "visible");
+    showTooltip(
+      `<div class="t-title">${fmtDateTime(new Date(best.t).toISOString())}</div>` +
+      `<div class="t-row">equity <b>${fmtMoney(best.v, p.currency || "R")}</b></div>`,
+      e.clientX, e.clientY);
+  });
+  svgEl.addEventListener("mouseleave", () => {
+    hideTooltip();
+    svgEl.querySelector("#eqDot").setAttribute("visibility", "hidden");
+  });
+}
+
+function renderPositions(p, cur) {
+  const tbody = document.querySelector("#positionsTable tbody");
+  document.getElementById("positionsEmpty").hidden = p.positions.length > 0;
+  tbody.innerHTML = p.positions.map((pos) => {
+    const pnlColor = pos.unrealizedPnl >= 0 ? "var(--delta-good)" : "var(--series-sell)";
+    return `<tr>
+      <td>${esc(pos.symbol)}</td>
+      <td class="num">${fmtQty(pos.qty)}</td>
+      <td class="num">${fmtMoney(pos.avgPrice, cur)}</td>
+      <td class="num">${fmtMoney(pos.lastPrice, cur)}</td>
+      <td class="num">${fmtMoney(pos.value, cur)}</td>
+      <td class="num" style="color:${pnlColor}">${fmtMoney(pos.unrealizedPnl, cur)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderDecisions(p) {
+  const tbody = document.querySelector("#decisionsTable tbody");
+  const decisions = (p.decisions || []).slice(0, 20);
+  document.getElementById("decisionsEmpty").hidden = decisions.length > 0;
+  tbody.innerHTML = decisions.map((d) => {
+    const result = d.executed
+      ? `<span class="pill"><span class="dot" style="background:var(--series-${d.action === "buy" ? "buy" : "sell"})"></span>executed</span>`
+      : `<span class="muted">skipped</span>`;
+    return `<tr>
+      <td class="num">${fmtDateTime(d.at)}</td>
+      <td>${esc(d.symbol || "—")}</td>
+      <td>${esc(d.action || "—")}</td>
+      <td class="num">${typeof d.confidence === "number" ? (d.confidence * 100).toFixed(0) + "%" : "—"}</td>
+      <td>${result}</td>
+      <td class="summary-cell">${esc(d.reason)}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ---- Table ----
