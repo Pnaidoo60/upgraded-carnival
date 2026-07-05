@@ -80,7 +80,9 @@ The dashboard shows equity, total/realized/open P&L, and open positions,
 marked to the latest price seen per symbol. Nothing touches a broker — connect
 one later when you're ready. Portfolio state persists to `data/paper.json`.
 
-To reset your portfolio, stop the server and delete `data/paper.json`.
+To reset your portfolio, click **Reset portfolio** on the dashboard (or
+`POST /api/reset`) — this restores starting cash and clears positions/trades
+while keeping your signal history.
 
 ## Configuration (`.env`)
 
@@ -100,7 +102,8 @@ To reset your portfolio, stop the server and delete `data/paper.json`.
 | Method | Path           | Description                             |
 | ------ | -------------- | --------------------------------------- |
 | `POST` | `/webhook`     | Receive a TradingView alert.            |
-| `GET`  | `/api/signals` | Recent signals + analyses (JSON).       |
+| `GET`  | `/api/signals` | Recent signals + analyses + portfolio.  |
+| `POST` | `/api/reset`   | Reset the paper portfolio.              |
 | `GET`  | `/`            | Live dashboard.                         |
 | `GET`  | `/health`      | Health check.                           |
 

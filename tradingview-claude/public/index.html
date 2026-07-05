@@ -85,6 +85,16 @@
       font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
       background: rgba(108,140,255,.15); color: var(--accent); margin-left: 4px;
     }
+    .paper-note { display: flex; align-items: center; gap: 12px; }
+    .paper-note span { flex: 1; }
+    .btn-reset {
+      font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+      color: var(--sell); background: rgba(239,83,80,.1);
+      border: 1px solid rgba(239,83,80,.35); border-radius: 6px;
+      padding: 5px 12px; white-space: nowrap; flex: none;
+    }
+    .btn-reset:hover { background: rgba(239,83,80,.2); }
+    .btn-reset:disabled { opacity: .5; cursor: default; }
     @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
   </style>
 </head>
@@ -129,9 +139,26 @@
       }
 
       el.innerHTML =
-        `<div class="paper-note">📝 <b>Paper trading</b> — simulated fills only, no broker connected.
-          Cash ${money(p.cash)} · trades when confidence ≥ ${(p.minConfidence * 100).toFixed(0)}% · ${money(p.tradeNotional)}/trade.</div>
+        `<div class="paper-note">
+          <span>📝 <b>Paper trading</b> — simulated fills only, no broker connected.
+          Cash ${money(p.cash)} · trades when confidence ≥ ${(p.minConfidence * 100).toFixed(0)}% · ${money(p.tradeNotional)}/trade.</span>
+          <button class="btn-reset" onclick="resetPortfolio(this)">Reset portfolio</button>
+        </div>
         <div class="stats">${stats}</div>${positions}`;
+    }
+
+    async function resetPortfolio(btn) {
+      if (!confirm('Reset the paper portfolio back to starting cash? Positions and trade history will be cleared. Signal history is kept.')) return;
+      btn.disabled = true;
+      btn.textContent = 'Resetting…';
+      try {
+        await fetch('/api/reset', { method: 'POST' });
+        await poll();
+      } catch (e) {
+        alert('Reset failed: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Reset portfolio';
+      }
     }
 
     function render(data) {

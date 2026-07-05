@@ -51,6 +51,16 @@ function load() {
   }
 }
 
+// Wipe the portfolio back to the configured starting balance (keeps signal
+// history, which lives in store.js).
+function reset() {
+  state = freshState();
+  nextTradeId = 1;
+  persist();
+  console.log(`Paper portfolio reset to $${state.startingCash.toFixed(2)}`);
+  return summary();
+}
+
 function persist() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -198,4 +208,4 @@ function summary() {
   };
 }
 
-module.exports = { load, observe, onSignal, summary, ENABLED };
+module.exports = { load, observe, onSignal, summary, reset, ENABLED };

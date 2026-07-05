@@ -150,6 +150,12 @@ app.get('/api/signals', (req, res) => {
   });
 });
 
+// Reset the paper portfolio back to starting cash (signal history is kept).
+app.post('/api/reset', (req, res) => {
+  const portfolio = paper.reset();
+  res.json({ ok: true, portfolio });
+});
+
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
