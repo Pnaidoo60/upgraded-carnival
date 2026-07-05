@@ -76,9 +76,10 @@ When a signal is analyzed, the paper-trading engine (`paper.js`) may place a
 - **No API key?** Paper trades follow the alert's own `side` field, so the
   engine works out of the box while you're learning.
 
-The dashboard shows equity, total/realized/open P&L, and open positions,
-marked to the latest price seen per symbol. Nothing touches a broker — connect
-one later when you're ready. Portfolio state persists to `data/paper.json`.
+The dashboard shows an equity-curve chart, total/realized/open P&L, and open
+positions, marked to the latest price seen per symbol. Nothing touches a
+broker — connect one later when you're ready. Portfolio state (including the
+equity curve) persists to `data/paper.json`.
 
 To reset your portfolio, click **Reset portfolio** on the dashboard (or
 `POST /api/reset`) — this restores starting cash and clears positions/trades

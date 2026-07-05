@@ -24,6 +24,8 @@ const MIN_CONFIDENCE = num(process.env.PAPER_MIN_CONFIDENCE, 0.6);
 let state = freshState();
 let nextTradeId = 1;
 
+const MAX_CURVE_POINTS = 1000;
+
 function freshState() {
   return {
     startingCash: STARTING_CASH,
@@ -32,15 +34,39 @@ function freshState() {
     positions: {}, // symbol -> { qty (signed), avg }
     lastPrice: {}, // symbol -> most recent price seen
     trades: [], // newest first: { id, at, symbol, action, side, qty, price, realized, signalId }
+    equityCurve: [{ t: new Date().toISOString(), equity: STARTING_CASH }], // oldest first
   };
+}
+
+// Current mark-to-market equity = cash + value of open positions.
+function currentEquity() {
+  let positionsValue = 0;
+  for (const [symbol, pos] of Object.entries(state.positions)) {
+    const last = state.lastPrice[symbol] ?? pos.avg;
+    positionsValue += pos.qty * last;
+  }
+  return state.cash + positionsValue;
+}
+
+// Append an equity point, skipping consecutive duplicates so flat stretches
+// don't bloat the curve. Bounds the history to MAX_CURVE_POINTS.
+function snapshotEquity() {
+  const equity = currentEquity();
+  const last = state.equityCurve[state.equityCurve.length - 1];
+  if (last && Math.abs(last.equity - equity) < 1e-6) return;
+  state.equityCurve.push({ t: new Date().toISOString(), equity });
+  if (state.equityCurve.length > MAX_CURVE_POINTS) state.equityCurve.shift();
 }
 
 function load() {
   try {
     const parsed = JSON.parse(fs.readFileSync(FILE, 'utf8'));
     state = { ...freshState(), ...parsed };
+    if (!Array.isArray(state.equityCurve) || state.equityCurve.length === 0) {
+      state.equityCurve = [];
+    }
     nextTradeId = state.trades.reduce((m, t) => Math.max(m, t.id), 0) + 1;
-    // If starting cash changed in .env after trading began, keep history but note it.
+    snapshotEquity(); // record where equity stands at boot
     console.log(`Loaded paper portfolio: cash $${state.cash.toFixed(2)}, ${state.trades.length} trade(s)`);
   } catch (err) {
     if (err.code !== 'ENOENT') {
@@ -82,6 +108,7 @@ function observe(payload) {
   const price = num(payload.price, NaN);
   if (symbol && Number.isFinite(price)) {
     state.lastPrice[symbol] = price;
+    snapshotEquity(); // mark-to-market moved with the new price
     persist();
   }
 }
@@ -171,6 +198,7 @@ function onSignal(signal) {
   };
   state.trades.unshift(trade);
   if (state.trades.length > 500) state.trades.pop();
+  snapshotEquity();
   persist();
   console.log(`Paper ${side} ${qty.toFixed(4)} ${symbol} @ ${price} (realized ${realized.toFixed(2)})`);
   return trade;
@@ -205,6 +233,7 @@ function summary() {
     tradeNotional: TRADE_NOTIONAL,
     positions,
     trades: state.trades.slice(0, 50),
+    equityCurve: state.equityCurve.slice(-200),
   };
 }
 

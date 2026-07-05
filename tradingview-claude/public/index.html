@@ -80,7 +80,10 @@
     th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
     th:first-child, td:first-child { text-align: left; }
     th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
-    .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 6px 0; }
+    .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 14px 0 6px; }
+    .chart { width: 100%; height: 140px; display: block; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+    .chart-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin: 4px 2px 0; }
+    .chart-empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
     .trade-badge {
       font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
       background: rgba(108,140,255,.15); color: var(--accent); margin-left: 4px;
@@ -113,6 +116,34 @@
     const pnlClass = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : '');
     const signed = (n) => (n >= 0 ? '+' : '') + money(n);
 
+    function renderChart(curve, startingCash) {
+      const title = '<div class="section-title">Equity curve</div>';
+      if (!curve || curve.length < 2) {
+        return title + '<div class="chart-empty">Collecting data — trades and price updates build the curve.</div>';
+      }
+      const W = 600, H = 140, pad = 6;
+      const eqs = curve.map((pt) => pt.equity);
+      let min = Math.min(...eqs, startingCash);
+      let max = Math.max(...eqs, startingCash);
+      if (max - min < 1e-6) { min -= 1; max += 1; }
+      const n = curve.length;
+      const x = (i) => pad + (i / (n - 1)) * (W - 2 * pad);
+      const y = (v) => pad + (1 - (v - min) / (max - min)) * (H - 2 * pad);
+      const line = curve.map((pt, i) => `${x(i).toFixed(1)},${y(pt.equity).toFixed(1)}`).join(' ');
+      const area = `${x(0).toFixed(1)},${H - pad} ${line} ${x(n - 1).toFixed(1)},${H - pad}`;
+      const up = eqs[eqs.length - 1] >= startingCash;
+      const color = up ? 'var(--buy)' : 'var(--sell)';
+      const baseInRange = startingCash >= min && startingCash <= max;
+      const baseY = y(startingCash).toFixed(1);
+      return title +
+        `<svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Equity over time">
+          <polygon points="${area}" fill="${color}" opacity="0.09"></polygon>
+          ${baseInRange ? `<line x1="${pad}" y1="${baseY}" x2="${W - pad}" y2="${baseY}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4" opacity="0.5" vector-effect="non-scaling-stroke"></line>` : ''}
+          <polyline points="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke"></polyline>
+        </svg>
+        <div class="chart-axis"><span>low ${money(min)}</span><span>start ${money(startingCash)}</span><span>high ${money(max)}</span></div>`;
+    }
+
     function renderPortfolio(p) {
       const el = document.getElementById('portfolio');
       if (!p || !p.enabled) { el.innerHTML = ''; return; }
@@ -144,7 +175,9 @@
           Cash ${money(p.cash)} · trades when confidence ≥ ${(p.minConfidence * 100).toFixed(0)}% · ${money(p.tradeNotional)}/trade.</span>
           <button class="btn-reset" onclick="resetPortfolio(this)">Reset portfolio</button>
         </div>
-        <div class="stats">${stats}</div>${positions}`;
+        <div class="stats">${stats}</div>
+        ${renderChart(p.equityCurve, p.startingCash)}
+        ${positions}`;
     }
 
     async function resetPortfolio(btn) {
