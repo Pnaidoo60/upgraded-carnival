@@ -14,6 +14,7 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
+const store = require('./store');
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
@@ -22,23 +23,17 @@ const HAS_API_KEY = Boolean(process.env.ANTHROPIC_API_KEY);
 
 const anthropic = HAS_API_KEY ? new Anthropic() : null;
 
-// In-memory ring buffer of the most recent signals (newest first).
-const MAX_SIGNALS = 100;
-const signals = [];
-let nextId = 1;
+// Load persisted history so signals survive restarts.
+store.load();
 
 function recordSignal(payload) {
-  const signal = {
-    id: nextId++,
+  return store.add({
     receivedAt: new Date().toISOString(),
     payload,
     status: HAS_API_KEY ? 'analyzing' : 'no_api_key',
     analysis: null,
     error: null,
-  };
-  signals.unshift(signal);
-  if (signals.length > MAX_SIGNALS) signals.pop();
-  return signal;
+  });
 }
 
 // Ask Claude to classify the alert and return a structured recommendation.
@@ -120,13 +115,11 @@ app.post('/webhook', (req, res) => {
 
   analyzeSignal(signal)
     .then((analysis) => {
-      signal.analysis = analysis;
-      signal.status = 'done';
+      store.update(signal, { analysis, status: 'done' });
       console.log(`Signal #${signal.id} analyzed:`, analysis.action, `(${analysis.confidence})`);
     })
     .catch((err) => {
-      signal.status = 'error';
-      signal.error = err.message;
+      store.update(signal, { status: 'error', error: err.message });
       console.error(`Signal #${signal.id} analysis failed:`, err.message);
     });
 });
@@ -136,7 +129,7 @@ app.get('/api/signals', (req, res) => {
   res.json({
     configured: HAS_API_KEY,
     model: CLAUDE_MODEL,
-    signals,
+    signals: store.all(),
   });
 });
 

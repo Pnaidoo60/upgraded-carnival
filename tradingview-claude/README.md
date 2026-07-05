@@ -81,8 +81,11 @@ guaranteed-parseable JSON (via structured outputs):
 
 ## Notes & next steps
 
-- Signals are held in memory (last 100) and reset on restart. Swap the
-  `signals` array in `server.js` for a database if you need history.
+- Signals persist to `data/signals.json` (last 100) via `store.js`, so history
+  survives restarts. The file is written atomically and is gitignored. Delete
+  it to clear history, or swap `store.js` for SQLite/Postgres if you outgrow a
+  flat file. Any signal caught mid-analysis by a restart is marked as
+  interrupted on reload.
 - Claude's output is a **recommendation, not a trade**. Wiring `action` to a
   broker API is deliberately left out — add it in the `.then()` handler in
   `server.js` behind your own risk checks and confirmations.
