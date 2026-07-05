@@ -63,6 +63,29 @@
       display: inline-block; animation: spin .8s linear infinite; vertical-align: -1px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Portfolio panel */
+    .portfolio { max-width: 900px; margin: 24px auto 0; padding: 0 24px; }
+    .paper-note {
+      font-size: 12px; color: var(--muted); background: rgba(108,140,255,.08);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px;
+    }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+    .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+    .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+    .stat .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+    .pos-fresh, .up { color: var(--buy); }
+    .down { color: var(--sell); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px; }
+    th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    th:first-child, td:first-child { text-align: left; }
+    th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; }
+    .section-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 6px 0; }
+    .trade-badge {
+      font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+      background: rgba(108,140,255,.15); color: var(--accent); margin-left: 4px;
+    }
+    @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
   </style>
 </head>
 <body>
@@ -70,13 +93,49 @@
     <h1>TradingView <span>×</span> Claude — Signal Desk</h1>
     <div class="status" id="status">connecting…</div>
   </header>
+  <div class="portfolio" id="portfolio"></div>
   <main id="feed"><div class="empty">Loading…</div></main>
 
   <script>
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    const money = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const pnlClass = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : '');
+    const signed = (n) => (n >= 0 ? '+' : '') + money(n);
+
+    function renderPortfolio(p) {
+      const el = document.getElementById('portfolio');
+      if (!p || !p.enabled) { el.innerHTML = ''; return; }
+      const stats = [
+        ['Equity', money(p.equity), ''],
+        ['Total P&L', signed(p.totalPnl), pnlClass(p.totalPnl)],
+        ['Realized', signed(p.realizedPnl), pnlClass(p.realizedPnl)],
+        ['Open P&L', signed(p.unrealizedPnl), pnlClass(p.unrealizedPnl)],
+      ].map(([label, value, cls]) =>
+        `<div class="stat"><div class="label">${label}</div><div class="value ${cls}">${esc(value)}</div></div>`
+      ).join('');
+
+      let positions = '';
+      if (p.positions.length) {
+        positions = `<div class="section-title">Open positions</div><table>
+          <tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Last</th><th>Open P&L</th></tr>` +
+          p.positions.map((pos) => `<tr>
+            <td>${esc(pos.symbol)}</td>
+            <td>${pos.qty > 0 ? 'long ' : 'short '}${Math.abs(pos.qty).toFixed(4)}</td>
+            <td>${pos.avg.toFixed(2)}</td>
+            <td>${pos.last.toFixed(2)}</td>
+            <td class="${pnlClass(pos.unrealized)}">${signed(pos.unrealized)}</td>
+          </tr>`).join('') + `</table>`;
+      }
+
+      el.innerHTML =
+        `<div class="paper-note">📝 <b>Paper trading</b> — simulated fills only, no broker connected.
+          Cash ${money(p.cash)} · trades when confidence ≥ ${(p.minConfidence * 100).toFixed(0)}% · ${money(p.tradeNotional)}/trade.</div>
+        <div class="stats">${stats}</div>${positions}`;
+    }
 
     function render(data) {
+      renderPortfolio(data.portfolio);
       const status = document.getElementById('status');
       status.innerHTML = data.configured
         ? `Claude <b>${esc(data.model)}</b> · ${data.signals.length} signal(s)`
@@ -111,10 +170,15 @@
           ? `<span class="conf">confidence ${(a.confidence * 100).toFixed(0)}% · risk ${esc(a.risk_level)}</span>`
           : '';
 
+        const trade = s.trade
+          ? `<span class="trade-badge">📝 paper ${esc(s.trade.side)} ${Number(s.trade.qty).toFixed(4)}</span>`
+          : '';
+
         return `<div class="card">
           <div class="card-top">
             <span class="pill ${esc(action)}">${esc(action)}</span>
             <span class="sym">${esc(sym)}</span>
+            ${trade}
             ${conf}
             <span class="time">${esc(when)}</span>
           </div>

@@ -15,6 +15,7 @@ const path = require('path');
 const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const store = require('./store');
+const paper = require('./paper');
 
 const PORT = process.env.PORT || 3000;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
@@ -23,8 +24,19 @@ const HAS_API_KEY = Boolean(process.env.ANTHROPIC_API_KEY);
 
 const anthropic = HAS_API_KEY ? new Anthropic() : null;
 
-// Load persisted history so signals survive restarts.
+// Load persisted history + paper portfolio so both survive restarts.
 store.load();
+paper.load();
+
+// Run the paper-trading engine for a signal and attach any resulting trade.
+function maybePaperTrade(signal) {
+  const trade = paper.onSignal(signal);
+  if (trade) {
+    store.update(signal, {
+      trade: { action: trade.action, side: trade.side, qty: trade.qty, price: trade.price },
+    });
+  }
+}
 
 function recordSignal(payload) {
   return store.add({
@@ -106,10 +118,13 @@ app.post('/webhook', (req, res) => {
   // Don't store the shared secret alongside the signal.
   const { secret, ...safePayload } = payload;
   const signal = recordSignal(safePayload);
+  paper.observe(safePayload); // refresh mark price for this symbol
   res.status(200).json({ ok: true, id: signal.id });
 
   if (!anthropic) {
+    // No Claude — paper trade directly on the alert's `side`.
     console.log(`Signal #${signal.id} stored (no ANTHROPIC_API_KEY — skipping analysis)`);
+    maybePaperTrade(signal);
     return;
   }
 
@@ -117,6 +132,7 @@ app.post('/webhook', (req, res) => {
     .then((analysis) => {
       store.update(signal, { analysis, status: 'done' });
       console.log(`Signal #${signal.id} analyzed:`, analysis.action, `(${analysis.confidence})`);
+      maybePaperTrade(signal);
     })
     .catch((err) => {
       store.update(signal, { status: 'error', error: err.message });
@@ -130,6 +146,7 @@ app.get('/api/signals', (req, res) => {
     configured: HAS_API_KEY,
     model: CLAUDE_MODEL,
     signals: store.all(),
+    portfolio: paper.summary(),
   });
 });
 

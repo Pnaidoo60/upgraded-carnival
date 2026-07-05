@@ -6,7 +6,10 @@ A small, runnable version of the Claude ↔ TradingView integration that the
 1. Receives TradingView webhook alerts at `POST /webhook`.
 2. Sends each alert to the Claude API for a structured recommendation
    (action + confidence + risk + reasoning).
-3. Shows every signal and Claude's verdict on a live dashboard at `/`.
+3. **Paper-trades** that recommendation against a simulated portfolio — no
+   broker, no real money — so you can practice strategies safely.
+4. Shows every signal, Claude's verdict, and your paper portfolio (equity,
+   positions, P&L) on a live dashboard at `/`.
 
 This is a **new, self-contained project** in its own folder — it does not touch
 the existing `claudlink` file at the repo root.
@@ -61,14 +64,36 @@ guaranteed-parseable JSON (via structured outputs):
 }
 ```
 
+## Paper trading (simulated)
+
+When a signal is analyzed, the paper-trading engine (`paper.js`) may place a
+**simulated** fill against a virtual portfolio:
+
+- Claude says `buy` / `sell` → opens or flips a position sized at
+  `PAPER_TRADE_NOTIONAL` dollars, but only if `confidence ≥ PAPER_MIN_CONFIDENCE`.
+- Claude says `close` → flattens the position and books realized P&L.
+- Claude says `hold` / `ignore`, or confidence is too low → no trade.
+- **No API key?** Paper trades follow the alert's own `side` field, so the
+  engine works out of the box while you're learning.
+
+The dashboard shows equity, total/realized/open P&L, and open positions,
+marked to the latest price seen per symbol. Nothing touches a broker — connect
+one later when you're ready. Portfolio state persists to `data/paper.json`.
+
+To reset your portfolio, stop the server and delete `data/paper.json`.
+
 ## Configuration (`.env`)
 
-| Variable            | Purpose                                                        |
-| ------------------- | -------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY` | Your Claude API key. Blank = record signals but skip analysis. |
-| `WEBHOOK_SECRET`    | Shared secret required in each alert payload. Blank = open.    |
-| `PORT`              | Server port (default 3000).                                    |
-| `CLAUDE_MODEL`      | Model id (default `claude-opus-4-8`).                          |
+| Variable              | Purpose                                                        |
+| --------------------- | -------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`   | Your Claude API key. Blank = record + paper-trade on `side`.   |
+| `WEBHOOK_SECRET`      | Shared secret required in each alert payload. Blank = open.    |
+| `PORT`                | Server port (default 3000).                                    |
+| `CLAUDE_MODEL`        | Model id (default `claude-opus-4-8`).                          |
+| `PAPER_TRADING`       | `on`/`off` (default on).                                       |
+| `PAPER_STARTING_CASH` | Virtual starting cash (default 100000).                        |
+| `PAPER_TRADE_NOTIONAL`| Dollars per simulated trade (default 10000).                   |
+| `PAPER_MIN_CONFIDENCE`| Min Claude confidence to act, 0-1 (default 0.6).               |
 
 ## Endpoints
 
