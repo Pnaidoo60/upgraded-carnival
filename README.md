@@ -44,6 +44,7 @@ Then open http://localhost:3000 — the dashboard polls every 5 seconds.
 | GET    | `/api/signals` | Recent signals + analyses (`?limit=N`, max 500)     |
 | GET    | `/api/stats`   | Aggregates: totals, action counts, avg confidence   |
 | GET    | `/api/portfolio` | Paper-trading portfolio: equity, positions, trades, decision log |
+| GET    | `/api/broker`  | IBKR paper adapter status (enabled/connected/account) |
 | POST   | `/api/portfolio/reset` | Reset the paper portfolio (requires `X-Webhook-Secret` when a secret is configured) |
 | GET    | `/health`      | Liveness + analysis mode (`live` / `mock`)          |
 | GET    | `/`            | Dashboard                                           |
@@ -98,6 +99,18 @@ Rules and guardrails:
 - Every decision (executed *or* skipped) is logged with its reason and shown
   on the dashboard, alongside the equity curve, open positions, realized /
   unrealized P&L, and win rate.
+
+### Interactive Brokers paper mirroring (optional)
+
+Set `BROKER=ibkr` to mirror every executed simulator trade to an
+**Interactive Brokers paper account** via IB Gateway / TWS — fake money on
+real markets, the proper staging step before any real execution. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for the full go-live guide (public HTTPS URL
+for TradingView, API keys, IB Gateway paper setup).
+
+Safety lock, with no override: the adapter only accepts the paper API ports
+(4002 / 7497) and only accounts whose ID starts with `D` (all IBKR paper
+accounts). Real-money execution is deliberately not implemented.
 
 ### Why not a real EasyEquities paper account?
 

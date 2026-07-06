@@ -15,6 +15,7 @@ import crypto from "node:crypto";
 import { SignalStore } from "./lib/store.js";
 import { analyzeSignal, isLiveMode } from "./lib/analyzer.js";
 import { PaperBroker } from "./lib/paper.js";
+import { IbkrPaperBroker } from "./lib/brokers/ibkr.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -25,6 +26,7 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 const store = new SignalStore(DATA_FILE);
 const broker = new PaperBroker(PORTFOLIO_FILE);
+const ibkr = new IbkrPaperBroker(); // enabled via BROKER=ibkr; paper-only by design
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -93,7 +95,23 @@ async function handleWebhook(req, res) {
   try {
     const analysis = await analyzeSignal(alert);
     store.setAnalysis(signal.id, analysis, "done");
-    broker.onSignal(signal, analysis);
+    const decision = broker.onSignal(signal, analysis);
+    // Mirror executed simulator trades to the IBKR paper account when enabled.
+    if (decision.executed && decision.trade && ibkr.isEnabled()) {
+      try {
+        const result = await ibkr.placeOrder({
+          tvSymbol: decision.symbol,
+          side: decision.trade.side,
+          quantity: decision.trade.qty,
+          currency: alert.currency,
+          exchange: alert.exchange,
+        });
+        broker.attachBrokerResult(signal.id, result);
+      } catch (err) {
+        console.error(`IBKR mirror failed for signal ${signal.id}:`, err.message);
+        broker.attachBrokerResult(signal.id, { error: err.message });
+      }
+    }
   } catch (err) {
     console.error(`analysis failed for signal ${signal.id}:`, err.message);
     store.setAnalysis(signal.id, { error: err.message }, "failed");
@@ -127,6 +145,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/portfolio") {
       return json(res, 200, broker.snapshot());
     }
+    if (req.method === "GET" && url.pathname === "/api/broker") {
+      return json(res, 200, ibkr.status());
+    }
     if (req.method === "POST" && url.pathname === "/api/portfolio/reset") {
       const provided = req.headers["x-webhook-secret"];
       if (!secretMatches(typeof provided === "string" ? provided : "")) {
@@ -159,6 +180,12 @@ server.listen(PORT, () => {
   console.log(`Analysis mode: ${isLiveMode() ? "live (Claude API)" : "mock (set ANTHROPIC_API_KEY for live analysis)"}`);
   if (!WEBHOOK_SECRET) {
     console.log("Warning: WEBHOOK_SECRET not set — webhook accepts unauthenticated posts.");
+  }
+  if (ibkr.isEnabled()) {
+    console.log(`IBKR paper mirroring enabled → ${ibkr.host}:${ibkr.port} (paper ports only)`);
+    ibkr.connect()
+      .then(() => console.log(`IBKR connected: paper account ${ibkr.account}`))
+      .catch((err) => console.error(`IBKR connect failed (will retry on first trade): ${err.message}`));
   }
 });
 

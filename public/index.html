@@ -216,11 +216,12 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 async function refresh() {
   try {
-    const [health, stats, signalsRes, portfolio] = await Promise.all([
+    const [health, stats, signalsRes, portfolio, brokerStatus] = await Promise.all([
       fetch("/health").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/signals?limit=200").then((r) => r.json()),
       fetch("/api/portfolio").then((r) => r.json()),
+      fetch("/api/broker").then((r) => r.json()),
     ]);
     const signals = signalsRes.signals || [];
     renderMode(health);
@@ -228,7 +229,7 @@ async function refresh() {
     renderTimeChart(signals);
     renderConfChart(signals);
     renderDistChart(stats);
-    renderPaper(portfolio);
+    renderPaper(portfolio, brokerStatus);
     renderTable(signals.slice(0, 25));
   } catch (err) {
     document.getElementById("modeBadge").textContent = "connection lost — retrying";
@@ -429,11 +430,15 @@ function fmtQty(v) {
   return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
-function renderPaper(p) {
+function renderPaper(p, brokerStatus) {
   const cur = p.currency || "R";
-  document.getElementById("paperBadge").innerHTML = p.enabled
-    ? "simulator <b>on</b>"
-    : "simulator <b>off</b> (kill switch)";
+  let badge = p.enabled ? "simulator <b>on</b>" : "simulator <b>off</b> (kill switch)";
+  if (brokerStatus && brokerStatus.enabled) {
+    badge += brokerStatus.connected
+      ? ` · IBKR paper <b>${esc(brokerStatus.account || "")}</b> connected`
+      : ` · IBKR paper <b>not connected</b>${brokerStatus.lastError ? " — " + esc(brokerStatus.lastError) : ""}`;
+  }
+  document.getElementById("paperBadge").innerHTML = badge;
   document.getElementById("paperDesc").textContent =
     `Simulated ${cur} portfolio driven by Claude's signals — no real orders are placed. ` +
     `Trades execute above ${(p.config.minConfidence * 100).toFixed(0)}% confidence, ` +
@@ -532,13 +537,19 @@ function renderDecisions(p) {
     const result = d.executed
       ? `<span class="pill"><span class="dot" style="background:var(--series-${d.action === "buy" ? "buy" : "sell"})"></span>executed</span>`
       : `<span class="muted">skipped</span>`;
+    let reason = esc(d.reason);
+    if (d.ibkr) {
+      if (d.ibkr.error) reason += ` · IBKR error: ${esc(d.ibkr.error)}`;
+      else if (d.ibkr.skipped) reason += ` · IBKR skipped: ${esc(d.ibkr.reason)}`;
+      else reason += ` · IBKR order #${esc(d.ibkr.orderId)} ${esc(d.ibkr.status || "")} (${esc(d.ibkr.quantity)} sh)`;
+    }
     return `<tr>
       <td class="num">${fmtDateTime(d.at)}</td>
       <td>${esc(d.symbol || "—")}</td>
       <td>${esc(d.action || "—")}</td>
       <td class="num">${typeof d.confidence === "number" ? (d.confidence * 100).toFixed(0) + "%" : "—"}</td>
       <td>${result}</td>
-      <td class="summary-cell">${esc(d.reason)}</td>
+      <td class="summary-cell">${reason}</td>
     </tr>`;
   }).join("");
 }
