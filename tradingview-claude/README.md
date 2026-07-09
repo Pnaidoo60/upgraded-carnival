@@ -37,6 +37,9 @@ You'll see the signal appear on the dashboard and, a moment later, Claude's
 recommendation fill in. No API key yet? The server still runs and records
 signals — it just skips the analysis step and tells you so.
 
+> 📋 Prefer a step-by-step walkthrough with copy-paste commands (API key +
+> ngrok + TradingView alert)? See **[SETUP.md](SETUP.md)**.
+
 ## Connecting real TradingView alerts
 
 1. Deploy this server somewhere with a public HTTPS URL (Render, Railway,
