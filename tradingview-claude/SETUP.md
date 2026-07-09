@@ -121,6 +121,41 @@ server, Claude analyzes it, and a paper trade appears on your dashboard.
 
 ---
 
+## Deploy for a permanent URL (instead of ngrok)
+
+ngrok is great for testing, but the URL changes each restart. For a stable
+HTTPS URL, deploy the app.
+
+### Option A — Render (easiest, free tier)
+
+A blueprint lives at the repo root (`render.yaml`).
+
+1. Push this repo to GitHub (already done if you're reading this on GitHub).
+2. In [Render](https://render.com/): **New → Blueprint** → connect this repo → **Apply**.
+3. When prompted, set **`ANTHROPIC_API_KEY`** and **`WEBHOOK_SECRET`**.
+4. Render builds and gives you a permanent URL like
+   `https://tradingview-claude.onrender.com`. Your webhook is that + `/webhook`.
+5. Put that webhook URL in your TradingView alert (step 6 above).
+
+> Free instances sleep after inactivity and have an ephemeral filesystem, so
+> paper-trade history resets on redeploy. For durable history, uncomment the
+> `disk:` block in `render.yaml` (needs a paid instance).
+
+### Option B — Docker (any host: Fly.io, Railway, Cloud Run, a VPS)
+
+A `Dockerfile` is included. Build and run anywhere:
+
+```bash
+cd tradingview-claude
+docker build -t tradingview-claude .
+docker run -p 3000:3000 --env-file .env tradingview-claude
+```
+
+Most platforms inject their own `PORT`; the server honors it automatically.
+Set `ANTHROPIC_API_KEY` and `WEBHOOK_SECRET` as env vars on the platform (don't
+bake them into the image). Mount a volume at `/app/data` if you want durable
+history.
+
 ## Troubleshooting
 
 | Symptom | Fix |
