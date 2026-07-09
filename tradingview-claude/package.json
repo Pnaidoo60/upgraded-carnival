@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test:signal": "node scripts/send-test-signal.js"
+    "test:signal": "node scripts/send-test-signal.js",
+    "smoke": "node scripts/smoke-test.js"
   },
   "license": "MIT",
   "dependencies": {
