@@ -1,0 +1,37 @@
+# Render Blueprint — one-click deploy of the TradingView × Claude paper trader.
+#
+# In Render: New → Blueprint → connect this repo → Apply. You'll be prompted to
+# set ANTHROPIC_API_KEY and WEBHOOK_SECRET. Render gives you a permanent HTTPS
+# URL; your TradingView webhook is that URL + /webhook.
+#
+# Note: the free plan has an ephemeral filesystem and sleeps after inactivity,
+# so paper-trade history resets on redeploy/restart. For durable history,
+# uncomment the `disk:` block below (requires a paid instance).
+services:
+  - type: web
+    name: tradingview-claude
+    runtime: node
+    plan: free
+    rootDir: tradingview-claude
+    buildCommand: npm ci
+    startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false # set in the Render dashboard, never committed
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: CLAUDE_MODEL
+        value: claude-opus-4-8
+      - key: PAPER_STARTING_CASH
+        value: "100000"
+      - key: PAPER_TRADE_NOTIONAL
+        value: "10000"
+      - key: PAPER_MIN_CONFIDENCE
+        value: "0.6"
+    # For durable paper-trade history across redeploys (requires a paid plan):
+    # disk:
+    #   name: data
+    #   mountPath: /opt/render/project/src/tradingview-claude/data
+    #   sizeGB: 1
