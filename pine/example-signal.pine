@@ -1,0 +1,40 @@
+//@version=5
+// Example TradingView strategy that emits webhook-ready JSON alerts for the
+// TradingView x Claude signal dashboard.
+//
+// Setup:
+//   1. Add this script to a chart.
+//   2. Create an alert on it with condition "Any alert() function call".
+//   3. Set the alert's webhook URL to https://<your-host>/webhook
+//
+// The alert() payload below is what the dashboard's /webhook endpoint expects.
+// Replace YOUR_SHARED_SECRET with the WEBHOOK_SECRET configured on the server
+// (or remove the field if the server runs without one).
+indicator("Claude Signal Example (SMA cross)", overlay=true)
+
+fastLen = input.int(10, "Fast SMA")
+slowLen = input.int(30, "Slow SMA")
+
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+
+plot(fast, "Fast SMA", color=color.new(color.blue, 0))
+plot(slow, "Slow SMA", color=color.new(color.orange, 0))
+
+longSignal  = ta.crossover(fast, slow)
+shortSignal = ta.crossunder(fast, slow)
+
+buildPayload(side) =>
+    '{"secret":"YOUR_SHARED_SECRET"' +
+      ',"symbol":"' + syminfo.tickerid + '"' +
+      ',"side":"' + side + '"' +
+      ',"price":' + str.tostring(close) +
+      ',"timeframe":"' + timeframe.period + '"' +
+      ',"strategy":"sma_cross_' + str.tostring(fastLen) + '_' + str.tostring(slowLen) + '"' +
+      ',"time":"' + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ssZ") + '"}'
+
+if longSignal
+    alert(buildPayload("buy"), alert.freq_once_per_bar_close)
+
+if shortSignal
+    alert(buildPayload("sell"), alert.freq_once_per_bar_close)
