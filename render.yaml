@@ -1,0 +1,25 @@
+# Render Blueprint for the TradingView x Claude dashboard.
+#
+# Deploy: push this repo to GitHub, then in the Render dashboard choose
+# "New +" → "Blueprint" and point it at the repo. Render reads this file,
+# builds with Node (no Docker needed), and gives you an https URL.
+#
+# Set ANTHROPIC_API_KEY and WEBHOOK_SECRET in the service's Environment tab
+# (they're marked sync:false so they're never read from git).
+services:
+  - type: web
+    name: tradingview-claude-dashboard
+    runtime: node
+    plan: free              # free spins down when idle; use "starter" for always-on webhooks
+    region: frankfurt       # closest Render region to South Africa
+    buildCommand: npm ci
+    startCommand: node server.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-8
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
