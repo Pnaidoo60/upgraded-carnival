@@ -125,6 +125,13 @@
   <div class="kpi-row" id="kpis"></div>
 
   <div class="card">
+    <h2>AAPL — live TradingView chart</h2>
+    <p class="desc">Real, interactive chart from TradingView with EMA 20/50, RSI and MACD pre-loaded. Loads in your browser (needs internet); the computed charts below work regardless.</p>
+    <div id="tvChart" style="height:520px"></div>
+    <div class="empty" id="tvFallback" hidden>Live TradingView chart couldn’t load (offline or blocked). The computed charts below still work.</div>
+  </div>
+
+  <div class="card">
     <h2 id="priceTitle">AAPL — price &amp; 20/50 EMA</h2>
     <p class="desc" id="priceNote"></p>
     <div class="legend" id="priceLegend"></div>
@@ -207,6 +214,7 @@
 
 <div class="tooltip" id="tooltip"></div>
 
+<script src="https://s3.tradingview.com/tv.js"></script>
 <script>
 const ACTIONS = [
   { key: "buy",  label: "Buy",  cssVar: "--series-buy"  },
@@ -827,6 +835,37 @@ function niceTicks(max) {
   for (let t = 0; t <= top; t += step) ticks.push(t);
   return { max: top, ticks };
 }
+
+// ---- Live TradingView chart widget (real data, loads in the browser) ----
+function initTradingView() {
+  const el = document.getElementById("tvChart");
+  const fallback = document.getElementById("tvFallback");
+  if (!window.TradingView || !TradingView.widget) {
+    el.hidden = true;
+    fallback.hidden = false;
+    return;
+  }
+  const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  new TradingView.widget({
+    container_id: "tvChart",
+    autosize: true,
+    symbol: "NASDAQ:AAPL",
+    interval: "D",
+    timezone: "Africa/Johannesburg",
+    theme: dark ? "dark" : "light",
+    style: "1",
+    locale: "en",
+    allow_symbol_change: true,
+    hide_side_toolbar: false,
+    studies: [
+      { id: "MAExp@tv-basicstudies", inputs: { length: 20 } },
+      { id: "MAExp@tv-basicstudies", inputs: { length: 50 } },
+      "RSI@tv-basicstudies",
+      "MACD@tv-basicstudies",
+    ],
+  });
+}
+initTradingView();
 
 refresh();
 setInterval(refresh, 5000);

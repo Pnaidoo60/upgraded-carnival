@@ -1,10 +1,13 @@
 //@version=5
-// TradingView strategy that plots the 20/50 EMA and emits webhook-ready JSON
-// alerts on each EMA crossover — for the TradingView x Claude signal dashboard.
+// TradingView strategy that plots the 20/50 EMA, tracks RSI and MACD, and emits
+// webhook-ready JSON alerts on each EMA crossover — for the TradingView x Claude
+// signal dashboard.
 //
 // The fast (20) and slow (50) EMAs make the trend/movement visible on the
 // chart; a crossover of the fast above the slow is a buy, a crossunder is a
-// sell. Each crossover posts the payload below to the dashboard's /webhook.
+// sell. RSI(14) and MACD(12,26,9) are computed too: shown in an on-chart label
+// and included in the webhook payload so Claude's analysis sees them. Each
+// crossover posts the payload below to the dashboard's /webhook.
 //
 // Setup:
 //   1. Open your AAPL chart, then Pine Editor → paste this script → "Add to chart".
@@ -15,14 +18,20 @@
 // (or remove the field if the server runs without one).
 indicator("Claude Signal — EMA 20/50 cross", overlay=true)
 
-fastLen = input.int(20, "Fast EMA")
-slowLen = input.int(50, "Slow EMA")
+fastLen  = input.int(20, "Fast EMA")
+slowLen  = input.int(50, "Slow EMA")
+rsiLen   = input.int(14, "RSI length")
+macdFast = input.int(12, "MACD fast")
+macdSlow = input.int(26, "MACD slow")
+macdSig  = input.int(9,  "MACD signal")
 
 fast = ta.ema(close, fastLen)
 slow = ta.ema(close, slowLen)
+rsiVal = ta.rsi(close, rsiLen)
+[macdLine, signalLine, histLine] = ta.macd(close, macdFast, macdSlow, macdSig)
 
 plot(fast, "EMA 20", color=color.new(color.blue, 0), linewidth=2)
-plot(slow, "EMA 50", color=color.new(color.purple, 0), linewidth=2)
+plot(slow, "EMA 50", color=color.new(color.orange, 0), linewidth=2)
 
 longSignal  = ta.crossover(fast, slow)
 shortSignal = ta.crossunder(fast, slow)
@@ -31,6 +40,17 @@ shortSignal = ta.crossunder(fast, slow)
 plotshape(longSignal,  title="Buy",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.small)
 plotshape(shortSignal, title="Sell", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.small)
 
+// Compact on-chart read of RSI / MACD on the latest bar (kept off the price
+// action so the pane stays clean). RSI and MACD live in their own studies too
+// if you add them separately — this label is just a quick glance.
+rsiState  = rsiVal >= 70 ? "overbought" : rsiVal <= 30 ? "oversold" : "neutral"
+macdState = macdLine > signalLine ? "bullish" : "bearish"
+var label info = na
+if barstate.islast
+    label.delete(info)
+    info := label.new(bar_index, high, text="RSI " + str.tostring(rsiVal, "#.0") + " (" + rsiState + ")\nMACD " + macdState,
+         style=label.style_label_down, color=color.new(color.gray, 20), textcolor=color.white, size=size.small)
+
 buildPayload(side) =>
     '{"secret":"YOUR_SHARED_SECRET"' +
       ',"symbol":"' + syminfo.tickerid + '"' +
@@ -38,6 +58,10 @@ buildPayload(side) =>
       ',"price":' + str.tostring(close) +
       ',"timeframe":"' + timeframe.period + '"' +
       ',"strategy":"ema_cross_' + str.tostring(fastLen) + '_' + str.tostring(slowLen) + '"' +
+      ',"rsi":' + str.tostring(rsiVal) +
+      ',"macd":' + str.tostring(macdLine) +
+      ',"macdSignal":' + str.tostring(signalLine) +
+      ',"macdHist":' + str.tostring(histLine) +
       ',"time":"' + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ssZ") + '"}'
 
 if longSignal
