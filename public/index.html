@@ -846,7 +846,9 @@ function initTradingView() {
     return;
   }
   const dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-  new TradingView.widget({
+  const EMA20 = dark ? "#3987e5" : "#2a78d6"; // blue
+  const EMA50 = dark ? "#ff9f45" : "#e8710a"; // orange
+  const widget = new TradingView.widget({
     container_id: "tvChart",
     autosize: true,
     symbol: "NASDAQ:AAPL",
@@ -857,13 +859,35 @@ function initTradingView() {
     locale: "en",
     allow_symbol_change: true,
     hide_side_toolbar: false,
-    studies: [
-      { id: "MAExp@tv-basicstudies", inputs: { length: 20 } },
-      { id: "MAExp@tv-basicstudies", inputs: { length: 50 } },
-      "RSI@tv-basicstudies",
-      "MACD@tv-basicstudies",
-    ],
+    studies: ["RSI@tv-basicstudies", "MACD@tv-basicstudies"],
+    studies_overrides: {
+      "relative strength index.plot.linewidth": 2,
+      "macd.macd.linewidth": 2,
+      "macd.signal.linewidth": 2,
+    },
   });
+
+  // Add the two EMAs with explicit, high-contrast colors and bold (width-3)
+  // lines so blue-20 and orange-50 read clearly against the candles. Each step
+  // degrades gracefully if this embed build lacks the styling API.
+  const addEmas = () => {
+    let chart;
+    try { chart = widget.activeChart ? widget.activeChart() : widget.chart(); } catch (_) { return; }
+    if (!chart || typeof chart.createStudy !== "function") return;
+    const ema = (len, color) => {
+      try {
+        chart.createStudy("Moving Average Exponential", false, false, [len], null, {
+          "Plot.color": color, "Plot.linewidth": 3, "plot.color": color, "plot.linewidth": 3,
+        });
+      } catch (_) {
+        try { chart.createStudy("Moving Average Exponential", false, false, [len]); } catch (_) {}
+      }
+    };
+    ema(20, EMA20);
+    ema(50, EMA50);
+  };
+  if (typeof widget.onChartReady === "function") widget.onChartReady(addEmas);
+  else addEmas();
 }
 initTradingView();
 
