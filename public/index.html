@@ -18,6 +18,8 @@
     --series-sell:    #e34948;  /* categorical red */
     --series-hold:    #eda100;  /* categorical yellow */
     --series-line:    #2a78d6;  /* categorical blue */
+    --ema-fast:       #2a78d6;  /* EMA 20 — blue */
+    --ema-slow:       #7c4dff;  /* EMA 50 — purple */
     --delta-good:     #006300;
   }
   @media (prefers-color-scheme: dark) {
@@ -34,6 +36,8 @@
       --series-sell:    #e66767;
       --series-hold:    #c98500;
       --series-line:    #3987e5;
+      --ema-fast:       #3987e5;
+      --ema-slow:       #a78bfa;
       --delta-good:     #0ca30c;
     }
   }
@@ -119,6 +123,13 @@
   </header>
 
   <div class="kpi-row" id="kpis"></div>
+
+  <div class="card">
+    <h2 id="priceTitle">AAPL — price &amp; 20/50 EMA</h2>
+    <p class="desc" id="priceNote"></p>
+    <div class="legend" id="priceLegend"></div>
+    <div id="priceChart"></div>
+  </div>
 
   <div class="card">
     <h2>Signals over time</h2>
@@ -211,21 +222,24 @@ function showTooltip(html, x, y) {
 function hideTooltip() { tooltip.style.display = "none"; }
 
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtDate = (iso) => new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
 const fmtDateTime = (iso) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 async function refresh() {
   try {
-    const [health, stats, signalsRes, portfolio, brokerStatus] = await Promise.all([
+    const [health, stats, signalsRes, portfolio, brokerStatus, prices] = await Promise.all([
       fetch("/health").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/signals?limit=200").then((r) => r.json()),
       fetch("/api/portfolio").then((r) => r.json()),
       fetch("/api/broker").then((r) => r.json()),
+      fetch("/api/prices?symbol=AAPL&limit=180").then((r) => r.json()),
     ]);
     const signals = signalsRes.signals || [];
     renderMode(health);
     renderKpis(stats);
+    renderPriceChart(prices);
     renderTimeChart(signals);
     renderConfChart(signals);
     renderDistChart(stats);
@@ -255,6 +269,93 @@ function renderKpis(stats) {
   document.getElementById("kpis").innerHTML = tiles.map((t) =>
     `<div class="tile"><div class="label">${t.label}</div><div class="value">${t.value}</div>` +
     (t.sub ? `<div class="sub">${t.sub}</div>` : "") + `</div>`).join("");
+}
+
+// ---- AAPL price with 20/50 EMA: candlesticks + EMA overlays ----
+function renderPriceChart(data) {
+  const el = document.getElementById("priceChart");
+  const candles = (data && data.candles) || [];
+  document.getElementById("priceTitle").textContent =
+    `${(data && data.symbol) || "AAPL"} — price & 20/50 EMA`;
+  document.getElementById("priceLegend").innerHTML = [
+    { c: "--series-buy",  label: "Up day"   },
+    { c: "--series-sell", label: "Down day" },
+    { c: "--ema-fast",    label: "EMA 20"   },
+    { c: "--ema-slow",    label: "EMA 50"   },
+  ].map((k) => `<span class="key"><span class="swatch" style="background:var(${k.c})"></span>${k.label}</span>`).join("");
+  document.getElementById("priceNote").textContent = data && data.source === "synthetic"
+    ? "Demo data (synthetic, deterministic) — no market-data feed reachable. Wire up a live source for real AAPL prices."
+    : "Live daily candles via Stooq.";
+  if (candles.length < 2) { el.innerHTML = '<div class="empty">No price data.</div>'; return; }
+
+  const W = 720, H = 260, padL = 46, padR = 12, padT = 10, padB = 22;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  let vMin = Math.min(...candles.map((c) => c.l));
+  let vMax = Math.max(...candles.map((c) => c.h));
+  const padV = (vMax - vMin) * 0.06 || 1;
+  vMin -= padV; vMax += padV;
+  const n = candles.length;
+  const band = plotW / n;
+  const cx = (i) => padL + band * (i + 0.5);
+  const y = (v) => padT + plotH - ((v - vMin) / (vMax - vMin)) * plotH;
+  const bodyW = Math.max(1, Math.min(band * 0.6, 10));
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc((data && data.symbol) || "AAPL")} price with 20 and 50 EMA">`;
+  const ticks = 4;
+  for (let i = 0; i <= ticks; i++) {
+    const v = vMin + (vMax - vMin) * (i / ticks);
+    svg += `<line class="grid-line" x1="${padL}" x2="${W - padR}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/>` +
+           `<text class="axis-label" x="${padL - 6}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+  candles.forEach((c, i) => {
+    const col = c.c >= c.o ? "--series-buy" : "--series-sell";
+    const x = cx(i);
+    svg += `<line x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="${y(c.h).toFixed(1)}" y2="${y(c.l).toFixed(1)}" stroke="var(${col})" stroke-width="1"/>`;
+    const top = Math.min(y(c.o), y(c.c)), h = Math.max(0.5, Math.abs(y(c.c) - y(c.o)));
+    svg += `<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${h.toFixed(1)}" fill="var(${col})"/>`;
+  });
+  const idxByT = new Map(candles.map((c, i) => [c.t, i]));
+  const emaLine = (pts, colorVar) => {
+    if (!pts || pts.length < 2) return "";
+    const d = pts.map((p, k) => `${k ? "L" : "M"}${cx(idxByT.get(p.t)).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+    return `<path d="${d}" fill="none" stroke="var(${colorVar})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  };
+  const ema = (data && data.ema) || {};
+  svg += emaLine(ema["20"], "--ema-fast");
+  svg += emaLine(ema["50"], "--ema-slow");
+  [0, Math.floor(n / 2), n - 1].forEach((i) => {
+    const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+    const xp = i === 0 ? padL : i === n - 1 ? W - padR : cx(i);
+    svg += `<text class="axis-label" x="${xp.toFixed(1)}" y="${H - 6}" text-anchor="${anchor}">${fmtDate(candles[i].t)}</text>`;
+  });
+  svg += `<line id="priceCross" y1="${padT}" y2="${padT + plotH}" stroke="var(--baseline)" stroke-width="1" visibility="hidden"/>`;
+  svg += "</svg>";
+  el.innerHTML = svg;
+
+  const ema20At = new Map((ema["20"] || []).map((p) => [p.t, p.v]));
+  const ema50At = new Map((ema["50"] || []).map((p) => [p.t, p.v]));
+  const sym = (data && data.symbol) || "AAPL";
+  const svgEl = el.querySelector("svg");
+  svgEl.addEventListener("mousemove", (e) => {
+    const rect = svgEl.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) / rect.width) * W;
+    const i = Math.max(0, Math.min(n - 1, Math.round((mx - padL) / band - 0.5)));
+    const c = candles[i];
+    const cross = svgEl.querySelector("#priceCross");
+    cross.setAttribute("x1", cx(i)); cross.setAttribute("x2", cx(i)); cross.setAttribute("visibility", "visible");
+    const e20 = ema20At.get(c.t), e50 = ema50At.get(c.t);
+    showTooltip(
+      `<div class="t-title">${esc(sym)} · ${fmtDate(c.t)}</div>` +
+      `<div class="t-row">O <b>${c.o.toFixed(2)}</b> H <b>${c.h.toFixed(2)}</b></div>` +
+      `<div class="t-row">L <b>${c.l.toFixed(2)}</b> C <b>${c.c.toFixed(2)}</b></div>` +
+      `<div class="t-row"><span class="swatch" style="background:var(--ema-fast)"></span>EMA 20 <b>${e20 != null ? e20.toFixed(2) : "—"}</b></div>` +
+      `<div class="t-row"><span class="swatch" style="background:var(--ema-slow)"></span>EMA 50 <b>${e50 != null ? e50.toFixed(2) : "—"}</b></div>`,
+      e.clientX, e.clientY);
+  });
+  svgEl.addEventListener("mouseleave", () => {
+    hideTooltip();
+    svgEl.querySelector("#priceCross").setAttribute("visibility", "hidden");
+  });
 }
 
 // ---- Signals over time: stacked columns ----

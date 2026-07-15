@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import { SignalStore } from "./lib/store.js";
 import { analyzeSignal, isLiveMode } from "./lib/analyzer.js";
+import { getCandles } from "./lib/prices.js";
 import { PaperBroker } from "./lib/paper.js";
 import { IbkrPaperBroker } from "./lib/brokers/ibkr.js";
 
@@ -147,6 +148,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/broker") {
       return json(res, 200, ibkr.status());
+    }
+    if (req.method === "GET" && url.pathname === "/api/prices") {
+      const symbol = (url.searchParams.get("symbol") || "AAPL").slice(0, 20);
+      const limit = Math.min(400, Math.max(20, Number(url.searchParams.get("limit")) || 180));
+      return json(res, 200, await getCandles(symbol, { limit }));
     }
     if (req.method === "POST" && url.pathname === "/api/portfolio/reset") {
       const provided = req.headers["x-webhook-secret"];
