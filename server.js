@@ -128,6 +128,25 @@ async function serveDashboard(res) {
   }
 }
 
+// Allowlisted static assets (PWA manifest + icons). Explicit map — no
+// user-controlled path ever touches the filesystem, so no traversal risk.
+const STATIC_ASSETS = {
+  "/manifest.webmanifest": { file: "manifest.webmanifest", type: "application/manifest+json; charset=utf-8" },
+  "/icons/icon-192.png": { file: "icons/icon-192.png", type: "image/png" },
+  "/icons/icon-512.png": { file: "icons/icon-512.png", type: "image/png" },
+  "/icons/icon-maskable-512.png": { file: "icons/icon-maskable-512.png", type: "image/png" },
+};
+
+async function serveStatic(res, asset) {
+  try {
+    const body = await readFile(path.join(__dirname, "public", asset.file));
+    res.writeHead(200, { "Content-Type": asset.type, "Cache-Control": "public, max-age=86400" });
+    res.end(body);
+  } catch {
+    json(res, 404, { error: "not found" });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
@@ -162,6 +181,9 @@ const server = http.createServer(async (req, res) => {
         mode: isLiveMode() ? "live" : "mock",
         paperTrading: broker.config.enabled,
       });
+    }
+    if (req.method === "GET" && STATIC_ASSETS[url.pathname]) {
+      return await serveStatic(res, STATIC_ASSETS[url.pathname]);
     }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return await serveDashboard(res);

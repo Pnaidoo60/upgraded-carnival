@@ -162,6 +162,27 @@ test("paper portfolio executes confident signals and exposes /api/portfolio", as
   assert.equal(fresh.closedTrades, 0);
 });
 
+test("serves the PWA manifest and icons for install", async () => {
+  const mani = await fetch(`${BASE}/manifest.webmanifest`);
+  assert.equal(mani.status, 200);
+  assert.match(mani.headers.get("content-type"), /application\/manifest\+json/);
+  const json = await mani.json();
+  assert.equal(json.display, "standalone");
+  assert.ok(json.icons.some((i) => i.sizes === "512x512"));
+  assert.ok(json.icons.some((i) => i.purpose === "maskable"));
+
+  const icon = await fetch(`${BASE}/icons/icon-192.png`);
+  assert.equal(icon.status, 200);
+  assert.equal(icon.headers.get("content-type"), "image/png");
+
+  const html = await (await fetch(`${BASE}/`)).text();
+  assert.match(html, /rel="manifest"/);
+
+  // unknown static path is a clean 404 (no traversal)
+  const miss = await fetch(`${BASE}/icons/nope.png`);
+  assert.equal(miss.status, 404);
+});
+
 test("serves the dashboard and enforces payload size limit", async () => {
   const page = await fetch(`${BASE}/`);
   assert.equal(page.status, 200);
