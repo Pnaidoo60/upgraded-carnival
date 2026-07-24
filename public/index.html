@@ -126,6 +126,10 @@
     <span class="mode-badge" id="modeBadge">connecting…</span>
   </header>
 
+  <div id="eventBanner" class="card" style="display:none;border-color:var(--series-hold);margin-bottom:16px">
+    <span id="eventBannerText"></span>
+  </div>
+
   <div class="kpi-row" id="kpis"></div>
 
   <div class="card">
@@ -234,15 +238,17 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 async function refresh() {
   try {
-    const [health, stats, signalsRes, portfolio, brokerStatus] = await Promise.all([
+    const [health, stats, signalsRes, portfolio, brokerStatus, marketEvents] = await Promise.all([
       fetch("/health").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/signals?limit=200").then((r) => r.json()),
       fetch("/api/portfolio").then((r) => r.json()),
       fetch("/api/broker").then((r) => r.json()),
+      fetch("/api/events").then((r) => r.json()).catch(() => ({ upcoming: [] })),
     ]);
     const signals = signalsRes.signals || [];
     renderMode(health);
+    renderEventBanner(marketEvents);
     renderKpis(stats);
     renderTimeChart(signals);
     renderConfChart(signals);
@@ -252,6 +258,21 @@ async function refresh() {
   } catch (err) {
     document.getElementById("modeBadge").textContent = "connection lost — retrying";
   }
+}
+
+function renderEventBanner(ev) {
+  const banner = document.getElementById("eventBanner");
+  const next = (ev && ev.upcoming && ev.upcoming[0]) || null;
+  if (!next) { banner.style.display = "none"; return; }
+  const withinWindow = next.daysUntil <= (ev.windowDays ?? 3);
+  const when = next.daysUntil === 0 ? "today" : next.daysUntil === 1 ? "tomorrow" : `in ${next.daysUntil} days`;
+  banner.style.display = "block";
+  banner.style.borderColor = withinWindow ? "var(--series-hold)" : "var(--border)";
+  document.getElementById("eventBannerText").innerHTML =
+    `<b>${withinWindow ? "⚠ " : "📅 "}${esc(next.label)}</b> ${when} (${esc(next.date)}). ` +
+    (withinWindow
+      ? `Signals near a scheduled decision are treated more cautiously — confidence is trimmed and risk raised.`
+      : `Signals will be treated more cautiously within ${ev.windowDays} days of it.`);
 }
 
 function renderMode(health) {
@@ -629,7 +650,7 @@ function renderTable(signals) {
       <td>${action}</td>
       <td class="num">${a && typeof a.confidence === "number" ? (a.confidence * 100).toFixed(0) + "%" : "—"}</td>
       <td>${a && a.risk ? esc(a.risk) : "—"}</td>
-      <td class="summary-cell">${a ? esc(a.summary || a.error || "") : ""}</td>
+      <td class="summary-cell">${a && a.eventContext ? `<span style="color:var(--series-hold)">⚠ near ${esc(a.eventContext.label)} (${a.eventContext.daysUntil}d)</span> · ` : ""}${a ? esc(a.summary || a.error || "") : ""}</td>
     </tr>`;
   }).join("");
 }

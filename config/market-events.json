@@ -1,0 +1,9 @@
+{
+  "_comment": "PUBLIC scheduled market events only. Add SARB MPC decision dates from the official calendar at https://www.resbank.co.za (Monetary Policy > MPC meeting dates), plus economic-data release dates (CPI, GDP) from Stats SA. A signal firing within EVENT_WINDOW_DAYS (default 3) of an event is treated more cautiously, because prices often gap on the announcement. Do NOT add anything based on non-public information — only official, published, scheduled dates. The 'events' array below is empty by design so nothing fires until you add verified dates; '_example_format' shows the shape.",
+  "_example_format": [
+    { "date": "2026-09-17", "label": "SARB MPC rate decision" },
+    { "date": "2026-11-19", "label": "SARB MPC rate decision" },
+    { "date": "2026-08-19", "label": "Stats SA CPI release" }
+  ],
+  "events": []
+}
