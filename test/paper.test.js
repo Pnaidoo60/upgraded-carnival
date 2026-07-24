@@ -88,6 +88,40 @@ test("kill switch blocks execution but still logs the decision", () => {
   assert.equal(b.cash, 100_000);
 });
 
+test("confidence buckets group closed trades by buy-confidence and outcome", () => {
+  const b = makeBroker();
+  // buy at 88% confidence, sell at a profit → 80-89% bucket, a win
+  b.onSignal(signal(1, { symbol: "JSE:SOL", price: 100 }), { action: "buy", confidence: 0.88 });
+  b.onSignal(signal(2, { symbol: "JSE:SOL", price: 120 }), { action: "sell", confidence: 0.9 });
+  // buy at 65% confidence, sell at a loss → 60-69% bucket, a loss
+  b.onSignal(signal(3, { symbol: "JSE:NPN", price: 200 }), { action: "buy", confidence: 0.65 });
+  b.onSignal(signal(4, { symbol: "JSE:NPN", price: 180 }), { action: "sell", confidence: 0.7 });
+
+  const snap = b.snapshot();
+  const byLabel = Object.fromEntries(snap.confidenceBuckets.map((x) => [x.label, x]));
+
+  assert.equal(byLabel["80–89%"].trades, 1);
+  assert.equal(byLabel["80–89%"].winRate, 1);
+  assert.ok(byLabel["80–89%"].pnl > 0);
+
+  assert.equal(byLabel["60–69%"].trades, 1);
+  assert.equal(byLabel["60–69%"].winRate, 0);
+  assert.ok(byLabel["60–69%"].pnl < 0);
+
+  // bands with no closed trades report null win rate, zero trades
+  assert.equal(byLabel["90–100%"].trades, 0);
+  assert.equal(byLabel["90–100%"].winRate, null);
+});
+
+test("buy-confidence is quantity-weighted across multiple entries", () => {
+  const b = makeBroker({ maxPositionPct: 1 });
+  // two buys into the same symbol at different confidences
+  b.onSignal(signal(1, { symbol: "JSE:AGL", price: 100 }), { action: "buy", confidence: 0.9 });
+  b.onSignal(signal(2, { symbol: "JSE:AGL", price: 100 }), { action: "buy", confidence: 0.7 });
+  const conf = b.positions["JSE:AGL"].buyConfidence;
+  assert.ok(conf > 0.7 && conf < 0.9, "weighted between the two buys");
+});
+
 test("snapshot reports equity, unrealized P&L and win rate", () => {
   const b = makeBroker();
   b.onSignal(signal(1, { symbol: "JSE:SHP", price: 200 }), { action: "buy", confidence: 0.9 });

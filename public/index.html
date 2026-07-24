@@ -160,6 +160,16 @@
         </div>
       </div>
     </div>
+    <h2 style="margin-top:16px">Win rate by confidence</h2>
+    <p class="desc">Closed trades grouped by the confidence Claude had when it bought — does a higher bar earn its keep? This is the data behind the <code>PAPER_MIN_CONFIDENCE</code> setting.</p>
+    <div style="overflow-x:auto">
+      <table id="bucketTable">
+        <thead><tr><th>Confidence band</th><th>Closed trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Avg / trade</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="bucketEmpty" hidden>No closed trades yet — win rates appear here once positions are sold.</div>
+    </div>
+
     <h2 style="margin-top:16px">Trade decisions</h2>
     <p class="desc">Every analyzed signal is evaluated — executed or skipped, with the reason.</p>
     <div style="overflow-x:auto">
@@ -462,7 +472,36 @@ function renderPaper(p, brokerStatus) {
 
   renderEquityChart(p);
   renderPositions(p, cur);
+  renderBuckets(p, cur);
   renderDecisions(p);
+}
+
+function renderBuckets(p, cur) {
+  const tbody = document.querySelector("#bucketTable tbody");
+  const buckets = (p.confidenceBuckets || []).filter((b) => b.trades > 0);
+  document.getElementById("bucketEmpty").hidden = buckets.length > 0;
+  tbody.innerHTML = buckets.map((b) => {
+    const wr = b.winRate == null ? "—" : (b.winRate * 100).toFixed(0) + "%";
+    const barW = b.winRate == null ? 0 : Math.round(b.winRate * 100);
+    // win-rate bar tints toward good/critical so the pattern reads at a glance
+    const barColor = b.winRate == null ? "var(--baseline)"
+      : b.winRate >= 0.5 ? "var(--series-buy)" : "var(--series-sell)";
+    const pnlColor = b.pnl >= 0 ? "var(--delta-good)" : "var(--series-sell)";
+    return `<tr>
+      <td>${esc(b.label)}</td>
+      <td class="num">${b.trades}</td>
+      <td class="num">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:0 0 60px;height:8px;background:var(--gridline);border-radius:4px;overflow:hidden">
+            <div style="width:${barW}%;height:100%;background:${barColor}"></div>
+          </div>
+          <span>${wr}</span>
+        </div>
+      </td>
+      <td class="num" style="color:${pnlColor}">${fmtMoney(b.pnl, cur)}</td>
+      <td class="num" style="color:${pnlColor}">${b.avgPnl == null ? "—" : fmtMoney(b.avgPnl, cur)}</td>
+    </tr>`;
+  }).join("");
 }
 
 function renderEquityChart(p) {
