@@ -26,6 +26,11 @@ Without an `ANTHROPIC_API_KEY` the server runs in **mock mode** — a
 deterministic heuristic stands in for Claude so the dashboard and tests work
 end-to-end with no credentials.
 
+**Deploying?** [`RENDER.md`](RENDER.md) is a near-one-click deploy via the
+included [`render.yaml`](render.yaml) Blueprint (public HTTPS URL for
+TradingView, persistent disk, always-on). For a VPS + Interactive Brokers
+paper account, see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 Simulate a TradingView alert:
 
 ```bash
