@@ -16,6 +16,7 @@ import { SignalStore } from "./lib/store.js";
 import { analyzeSignal, isLiveMode } from "./lib/analyzer.js";
 import { PaperBroker } from "./lib/paper.js";
 import { IbkrPaperBroker } from "./lib/brokers/ibkr.js";
+import { MarketEvents } from "./lib/events.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -24,9 +25,12 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data", "signals
 const PORTFOLIO_FILE = process.env.PORTFOLIO_FILE || path.join(path.dirname(DATA_FILE), "portfolio.json");
 const MAX_BODY_BYTES = 64 * 1024;
 
+const EVENTS_FILE = process.env.EVENTS_FILE || path.join(__dirname, "config", "market-events.json");
+
 const store = new SignalStore(DATA_FILE);
 const broker = new PaperBroker(PORTFOLIO_FILE);
 const ibkr = new IbkrPaperBroker(); // enabled via BROKER=ibkr; paper-only by design
+const events = new MarketEvents(EVENTS_FILE); // public scheduled-event caution
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -93,7 +97,8 @@ async function handleWebhook(req, res) {
   json(res, 200, { ok: true, id: signal.id });
 
   try {
-    const analysis = await analyzeSignal(alert);
+    const eventContext = events.contextFor();
+    const analysis = await analyzeSignal(alert, { eventContext });
     store.setAnalysis(signal.id, analysis, "done");
     const decision = broker.onSignal(signal, analysis);
     // Mirror executed simulator trades to the IBKR paper account when enabled.
@@ -167,6 +172,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/api/broker") {
       return json(res, 200, ibkr.status());
     }
+    if (req.method === "GET" && url.pathname === "/api/events") {
+      return json(res, 200, { windowDays: events.windowDays, upcoming: events.upcoming() });
+    }
     if (req.method === "POST" && url.pathname === "/api/portfolio/reset") {
       const provided = req.headers["x-webhook-secret"];
       if (!secretMatches(typeof provided === "string" ? provided : "")) {
@@ -197,6 +205,7 @@ const server = http.createServer(async (req, res) => {
 
 await store.load();
 await broker.load();
+await events.load();
 server.listen(PORT, () => {
   console.log(`TradingView x Claude dashboard listening on http://localhost:${PORT}`);
   console.log(`Analysis mode: ${isLiveMode() ? "live (Claude API)" : "mock (set ANTHROPIC_API_KEY for live analysis)"}`);

@@ -126,6 +126,10 @@
     <span class="mode-badge" id="modeBadge">connecting…</span>
   </header>
 
+  <div id="eventBanner" class="card" style="display:none;border-color:var(--series-hold);margin-bottom:16px">
+    <span id="eventBannerText"></span>
+  </div>
+
   <div class="kpi-row" id="kpis"></div>
 
   <div class="card">
@@ -169,7 +173,7 @@
       </div>
     </div>
     <h2 style="margin-top:16px">Win rate by confidence</h2>
-    <p class="desc">Closed trades grouped by the confidence Claude had when it bought — does a higher bar earn its keep? This is the data behind the <code>PAPER_MIN_CONFIDENCE</code> setting.</p>
+    <p class="desc">Closed trades grouped by the confidence Claude had when it bought — does a higher bar earn its keep? This is the data behind the <code>PAPER_MIN_CONFIDENCE</code> setting. <b>Dimmed bands have too few trades to trust yet</b> — wait until "building" turns to "reliable" before acting on a number.</p>
     <div style="overflow-x:auto">
       <table id="bucketTable">
         <thead><tr><th>Confidence band</th><th>Closed trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Avg / trade</th></tr></thead>
@@ -234,15 +238,17 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 async function refresh() {
   try {
-    const [health, stats, signalsRes, portfolio, brokerStatus] = await Promise.all([
+    const [health, stats, signalsRes, portfolio, brokerStatus, marketEvents] = await Promise.all([
       fetch("/health").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/signals?limit=200").then((r) => r.json()),
       fetch("/api/portfolio").then((r) => r.json()),
       fetch("/api/broker").then((r) => r.json()),
+      fetch("/api/events").then((r) => r.json()).catch(() => ({ upcoming: [] })),
     ]);
     const signals = signalsRes.signals || [];
     renderMode(health);
+    renderEventBanner(marketEvents);
     renderKpis(stats);
     renderTimeChart(signals);
     renderConfChart(signals);
@@ -252,6 +258,21 @@ async function refresh() {
   } catch (err) {
     document.getElementById("modeBadge").textContent = "connection lost — retrying";
   }
+}
+
+function renderEventBanner(ev) {
+  const banner = document.getElementById("eventBanner");
+  const next = (ev && ev.upcoming && ev.upcoming[0]) || null;
+  if (!next) { banner.style.display = "none"; return; }
+  const withinWindow = next.daysUntil <= (ev.windowDays ?? 3);
+  const when = next.daysUntil === 0 ? "today" : next.daysUntil === 1 ? "tomorrow" : `in ${next.daysUntil} days`;
+  banner.style.display = "block";
+  banner.style.borderColor = withinWindow ? "var(--series-hold)" : "var(--border)";
+  document.getElementById("eventBannerText").innerHTML =
+    `<b>${withinWindow ? "⚠ " : "📅 "}${esc(next.label)}</b> ${when} (${esc(next.date)}). ` +
+    (withinWindow
+      ? `Signals near a scheduled decision are treated more cautiously — confidence is trimmed and risk raised.`
+      : `Signals will be treated more cautiously within ${ev.windowDays} days of it.`);
 }
 
 function renderMode(health) {
@@ -484,20 +505,29 @@ function renderPaper(p, brokerStatus) {
   renderDecisions(p);
 }
 
+// Closed trades a band needs before its win rate is worth acting on. Below
+// this the numbers are dominated by luck, so the row is dimmed and tagged.
+const RELIABLE_MIN = 20;
+
 function renderBuckets(p, cur) {
   const tbody = document.querySelector("#bucketTable tbody");
   const buckets = (p.confidenceBuckets || []).filter((b) => b.trades > 0);
   document.getElementById("bucketEmpty").hidden = buckets.length > 0;
   tbody.innerHTML = buckets.map((b) => {
+    const mature = b.trades >= RELIABLE_MIN;
     const wr = b.winRate == null ? "—" : (b.winRate * 100).toFixed(0) + "%";
     const barW = b.winRate == null ? 0 : Math.round(b.winRate * 100);
-    // win-rate bar tints toward good/critical so the pattern reads at a glance
-    const barColor = b.winRate == null ? "var(--baseline)"
+    // full colour once trustworthy; muted grey while still "building"
+    const barColor = !mature ? "var(--muted)"
       : b.winRate >= 0.5 ? "var(--series-buy)" : "var(--series-sell)";
-    const pnlColor = b.pnl >= 0 ? "var(--delta-good)" : "var(--series-sell)";
-    return `<tr>
+    const pnlColor = !mature ? "var(--text-muted)"
+      : b.pnl >= 0 ? "var(--delta-good)" : "var(--series-sell)";
+    const tag = mature
+      ? `<span style="font-size:11px;color:var(--delta-good)">● reliable</span>`
+      : `<span style="font-size:11px;color:var(--text-muted)">● building ${b.trades}/${RELIABLE_MIN}</span>`;
+    return `<tr style="${mature ? "" : "opacity:0.5"}">
       <td>${esc(b.label)}</td>
-      <td class="num">${b.trades}</td>
+      <td class="num">${b.trades} &nbsp; ${tag}</td>
       <td class="num">
         <div style="display:flex;align-items:center;gap:8px">
           <div style="flex:0 0 60px;height:8px;background:var(--gridline);border-radius:4px;overflow:hidden">
@@ -620,7 +650,7 @@ function renderTable(signals) {
       <td>${action}</td>
       <td class="num">${a && typeof a.confidence === "number" ? (a.confidence * 100).toFixed(0) + "%" : "—"}</td>
       <td>${a && a.risk ? esc(a.risk) : "—"}</td>
-      <td class="summary-cell">${a ? esc(a.summary || a.error || "") : ""}</td>
+      <td class="summary-cell">${a && a.eventContext ? `<span style="color:var(--series-hold)">⚠ near ${esc(a.eventContext.label)} (${a.eventContext.daysUntil}d)</span> · ` : ""}${a ? esc(a.summary || a.error || "") : ""}</td>
     </tr>`;
   }).join("");
 }
