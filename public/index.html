@@ -64,6 +64,12 @@
     border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
   }
   .mode-badge b { color: var(--text-primary); font-weight: 600; }
+  .paper-badge {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+    color: #ffffff; background: var(--series-buy);
+    border-radius: 999px; padding: 2px 11px; white-space: nowrap;
+  }
+  .paper-badge.warn { background: var(--series-sell); }
 
   .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .tile {
@@ -123,6 +129,7 @@
 <div class="wrap">
   <header>
     <h1>TradingView × Claude — Signal Dashboard</h1>
+    <span class="paper-badge" id="paperGuarantee" title="Real-money execution is not implemented in this codebase.">● PAPER TRADING — no real orders</span>
     <span class="mode-badge" id="modeBadge">connecting…</span>
   </header>
 
@@ -280,6 +287,16 @@ function renderMode(health) {
   el.innerHTML = health.mode === "live"
     ? 'analysis: <b>Claude (live)</b>'
     : 'analysis: <b>mock</b> — set ANTHROPIC_API_KEY for live Claude analysis';
+
+  // Paper-only guarantee — should always read "paper" from the server.
+  const guarantee = document.getElementById("paperGuarantee");
+  if (health.tradingMode && health.tradingMode !== "paper") {
+    guarantee.textContent = "⚠ UNEXPECTED TRADING MODE: " + health.tradingMode;
+    guarantee.classList.add("warn");
+  } else {
+    guarantee.textContent = "● PAPER TRADING — no real orders";
+    guarantee.classList.remove("warn");
+  }
 }
 
 function renderKpis(stats) {
