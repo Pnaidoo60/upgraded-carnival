@@ -26,6 +26,11 @@ Without an `ANTHROPIC_API_KEY` the server runs in **mock mode** — a
 deterministic heuristic stands in for Claude so the dashboard and tests work
 end-to-end with no credentials.
 
+**Deploying?** [`RENDER.md`](RENDER.md) is a near-one-click deploy via the
+included [`render.yaml`](render.yaml) Blueprint (public HTTPS URL for
+TradingView, persistent disk, always-on). For a VPS + Interactive Brokers
+paper account, see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 Simulate a TradingView alert:
 
 ```bash
@@ -122,6 +127,40 @@ the safe implementation for South African users today. `lib/paper.js` is
 written as a broker adapter, so if EasyEquities (or another broker with a
 paper environment, e.g. Alpaca) opens an API, a real adapter can replace the
 simulator without touching the signal pipeline or dashboard.
+
+## Technical indicators in the signal
+
+Confidence is more meaningful when the alert carries indicator values, not just
+a side and price. The example Pine script (`pine/example-signal.pine`) sends
+`rsi`, `macd_hist`, `trend`, `ema_fast`/`ema_slow`, and `volume_vs_avg`
+alongside the usual fields. Claude (and the mock heuristic) weigh how well those
+indicators **agree with the alert's side** — a buy with an up-trend, positive
+MACD, supportive RSI, and above-average volume scores high; one where they
+conflict scores low. The alignment count is shown in each signal's assessment
+(e.g. "5/5 indicators aligned"). Send whatever indicators your strategy uses;
+unknown fields are simply ignored.
+
+## Scheduled-event caution (public dates only)
+
+Prices often gap on scheduled announcements (a SARB MPC rate decision, a CPI
+release). `config/market-events.json` holds a list of **public, scheduled**
+event dates you maintain. When a signal fires within `EVENT_WINDOW_DAYS`
+(default 3) of one, its confidence is trimmed and risk raised, and the dashboard
+shows a caution banner plus a badge on the affected signals.
+
+Populate it from official public calendars only — e.g. SARB MPC dates from
+[resbank.co.za](https://www.resbank.co.za) and data releases from Stats SA:
+
+```json
+{ "events": [
+  { "date": "2026-09-17", "label": "SARB MPC rate decision" },
+  { "date": "2026-08-19", "label": "Stats SA CPI release" }
+] }
+```
+
+> This uses only publicly-known scheduled dates. It is **not** a channel for
+> non-public information — do not add anything based on inside knowledge of a
+> decision. `GET /api/events` returns the upcoming list.
 
 ## Security notes
 

@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TradingView × Claude — Signal Dashboard</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#1a1a19">
+<meta name="application-name" content="Signal Dash">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Signal Dash">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 <style>
   :root {
     --page:           #ffffff;
@@ -60,6 +68,12 @@
     border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
   }
   .mode-badge b { color: var(--text-primary); font-weight: 600; }
+  .paper-badge {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+    color: #ffffff; background: var(--series-buy);
+    border-radius: 999px; padding: 2px 11px; white-space: nowrap;
+  }
+  .paper-badge.warn { background: var(--series-sell); }
 
   .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
   .tile {
@@ -119,8 +133,13 @@
 <div class="wrap">
   <header>
     <h1>TradingView × Claude — Signal Dashboard</h1>
+    <span class="paper-badge" id="paperGuarantee" title="Real-money execution is not implemented in this codebase.">● PAPER TRADING — no real orders</span>
     <span class="mode-badge" id="modeBadge">connecting…</span>
   </header>
+
+  <div id="eventBanner" class="card" style="display:none;border-color:var(--series-hold);margin-bottom:16px">
+    <span id="eventBannerText"></span>
+  </div>
 
   <div class="kpi-row" id="kpis"></div>
 
@@ -186,6 +205,16 @@
         </div>
       </div>
     </div>
+    <h2 style="margin-top:16px">Win rate by confidence</h2>
+    <p class="desc">Closed trades grouped by the confidence Claude had when it bought — does a higher bar earn its keep? This is the data behind the <code>PAPER_MIN_CONFIDENCE</code> setting. <b>Dimmed bands have too few trades to trust yet</b> — wait until "building" turns to "reliable" before acting on a number.</p>
+    <div style="overflow-x:auto">
+      <table id="bucketTable">
+        <thead><tr><th>Confidence band</th><th>Closed trades</th><th>Win rate</th><th>Realized P&amp;L</th><th>Avg / trade</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="empty" id="bucketEmpty" hidden>No closed trades yet — win rates appear here once positions are sold.</div>
+    </div>
+
     <h2 style="margin-top:16px">Trade decisions</h2>
     <p class="desc">Every analyzed signal is evaluated — executed or skipped, with the reason.</p>
     <div style="overflow-x:auto">
@@ -244,16 +273,18 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&
 
 async function refresh() {
   try {
-    const [health, stats, signalsRes, portfolio, brokerStatus, prices] = await Promise.all([
+    const [health, stats, signalsRes, portfolio, brokerStatus, prices, marketEvents] = await Promise.all([
       fetch("/health").then((r) => r.json()),
       fetch("/api/stats").then((r) => r.json()),
       fetch("/api/signals?limit=200").then((r) => r.json()),
       fetch("/api/portfolio").then((r) => r.json()),
       fetch("/api/broker").then((r) => r.json()),
       fetch("/api/prices?symbol=AAPL&limit=180").then((r) => r.json()),
+      fetch("/api/events").then((r) => r.json()).catch(() => ({ upcoming: [] })),
     ]);
     const signals = signalsRes.signals || [];
     renderMode(health);
+    renderEventBanner(marketEvents);
     renderKpis(stats);
     renderPriceChart(prices);
     renderRSIChart(prices);
@@ -268,11 +299,36 @@ async function refresh() {
   }
 }
 
+function renderEventBanner(ev) {
+  const banner = document.getElementById("eventBanner");
+  const next = (ev && ev.upcoming && ev.upcoming[0]) || null;
+  if (!next) { banner.style.display = "none"; return; }
+  const withinWindow = next.daysUntil <= (ev.windowDays ?? 3);
+  const when = next.daysUntil === 0 ? "today" : next.daysUntil === 1 ? "tomorrow" : `in ${next.daysUntil} days`;
+  banner.style.display = "block";
+  banner.style.borderColor = withinWindow ? "var(--series-hold)" : "var(--border)";
+  document.getElementById("eventBannerText").innerHTML =
+    `<b>${withinWindow ? "⚠ " : "📅 "}${esc(next.label)}</b> ${when} (${esc(next.date)}). ` +
+    (withinWindow
+      ? `Signals near a scheduled decision are treated more cautiously — confidence is trimmed and risk raised.`
+      : `Signals will be treated more cautiously within ${ev.windowDays} days of it.`);
+}
+
 function renderMode(health) {
   const el = document.getElementById("modeBadge");
   el.innerHTML = health.mode === "live"
     ? 'analysis: <b>Claude (live)</b>'
     : 'analysis: <b>mock</b> — set ANTHROPIC_API_KEY for live Claude analysis';
+
+  // Paper-only guarantee — should always read "paper" from the server.
+  const guarantee = document.getElementById("paperGuarantee");
+  if (health.tradingMode && health.tradingMode !== "paper") {
+    guarantee.textContent = "⚠ UNEXPECTED TRADING MODE: " + health.tradingMode;
+    guarantee.classList.add("warn");
+  } else {
+    guarantee.textContent = "● PAPER TRADING — no real orders";
+    guarantee.classList.remove("warn");
+  }
 }
 
 function renderKpis(stats) {
@@ -712,7 +768,45 @@ function renderPaper(p, brokerStatus) {
 
   renderEquityChart(p);
   renderPositions(p, cur);
+  renderBuckets(p, cur);
   renderDecisions(p);
+}
+
+// Closed trades a band needs before its win rate is worth acting on. Below
+// this the numbers are dominated by luck, so the row is dimmed and tagged.
+const RELIABLE_MIN = 20;
+
+function renderBuckets(p, cur) {
+  const tbody = document.querySelector("#bucketTable tbody");
+  const buckets = (p.confidenceBuckets || []).filter((b) => b.trades > 0);
+  document.getElementById("bucketEmpty").hidden = buckets.length > 0;
+  tbody.innerHTML = buckets.map((b) => {
+    const mature = b.trades >= RELIABLE_MIN;
+    const wr = b.winRate == null ? "—" : (b.winRate * 100).toFixed(0) + "%";
+    const barW = b.winRate == null ? 0 : Math.round(b.winRate * 100);
+    // full colour once trustworthy; muted grey while still "building"
+    const barColor = !mature ? "var(--muted)"
+      : b.winRate >= 0.5 ? "var(--series-buy)" : "var(--series-sell)";
+    const pnlColor = !mature ? "var(--text-muted)"
+      : b.pnl >= 0 ? "var(--delta-good)" : "var(--series-sell)";
+    const tag = mature
+      ? `<span style="font-size:11px;color:var(--delta-good)">● reliable</span>`
+      : `<span style="font-size:11px;color:var(--text-muted)">● building ${b.trades}/${RELIABLE_MIN}</span>`;
+    return `<tr style="${mature ? "" : "opacity:0.5"}">
+      <td>${esc(b.label)}</td>
+      <td class="num">${b.trades} &nbsp; ${tag}</td>
+      <td class="num">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:0 0 60px;height:8px;background:var(--gridline);border-radius:4px;overflow:hidden">
+            <div style="width:${barW}%;height:100%;background:${barColor}"></div>
+          </div>
+          <span>${wr}</span>
+        </div>
+      </td>
+      <td class="num" style="color:${pnlColor}">${fmtMoney(b.pnl, cur)}</td>
+      <td class="num" style="color:${pnlColor}">${b.avgPnl == null ? "—" : fmtMoney(b.avgPnl, cur)}</td>
+    </tr>`;
+  }).join("");
 }
 
 function renderEquityChart(p) {
@@ -823,7 +917,7 @@ function renderTable(signals) {
       <td>${action}</td>
       <td class="num">${a && typeof a.confidence === "number" ? (a.confidence * 100).toFixed(0) + "%" : "—"}</td>
       <td>${a && a.risk ? esc(a.risk) : "—"}</td>
-      <td class="summary-cell">${a ? esc(a.summary || a.error || "") : ""}</td>
+      <td class="summary-cell">${a && a.eventContext ? `<span style="color:var(--series-hold)">⚠ near ${esc(a.eventContext.label)} (${a.eventContext.daysUntil}d)</span> · ` : ""}${a ? esc(a.summary || a.error || "") : ""}</td>
     </tr>`;
   }).join("");
 }

@@ -21,6 +21,15 @@ slow = ta.sma(close, slowLen)
 plot(fast, "Fast SMA", color=color.new(color.blue, 0))
 plot(slow, "Slow SMA", color=color.new(color.orange, 0))
 
+// Extra indicators sent to Claude so confidence reflects real alignment,
+// not just how complete the payload is.
+rsiVal      = ta.rsi(close, 14)
+[macdLine, signalLine, macdHist] = ta.macd(close, 12, 26, 9)
+emaFast     = ta.ema(close, 20)
+emaSlow     = ta.ema(close, 50)
+trendStr    = emaFast > emaSlow ? "up" : emaFast < emaSlow ? "down" : "flat"
+volRatio    = volume / ta.sma(volume, 20)
+
 longSignal  = ta.crossover(fast, slow)
 shortSignal = ta.crossunder(fast, slow)
 
@@ -31,6 +40,12 @@ buildPayload(side) =>
       ',"price":' + str.tostring(close) +
       ',"timeframe":"' + timeframe.period + '"' +
       ',"strategy":"sma_cross_' + str.tostring(fastLen) + '_' + str.tostring(slowLen) + '"' +
+      ',"rsi":' + str.tostring(math.round(rsiVal, 1)) +
+      ',"macd_hist":' + str.tostring(math.round(macdHist, 4)) +
+      ',"trend":"' + trendStr + '"' +
+      ',"ema_fast":' + str.tostring(math.round(emaFast, 2)) +
+      ',"ema_slow":' + str.tostring(math.round(emaSlow, 2)) +
+      ',"volume_vs_avg":' + str.tostring(math.round(volRatio, 2)) +
       ',"time":"' + str.format_time(timenow, "yyyy-MM-dd'T'HH:mm:ssZ") + '"}'
 
 if longSignal

@@ -1,25 +1,51 @@
-# Render Blueprint for the TradingView x Claude dashboard.
+# Render Blueprint — TradingView × Claude signal dashboard.
+# Deploy: push this repo to GitHub, then in Render → New → Blueprint, pick the
+# repo. Render provisions the web service + persistent disk automatically.
+# Set the two secret env vars (ANTHROPIC_API_KEY, WEBHOOK_SECRET) in the
+# dashboard when prompted — they are intentionally NOT stored in git.
 #
-# Deploy: push this repo to GitHub, then in the Render dashboard choose
-# "New +" → "Blueprint" and point it at the repo. Render reads this file,
-# builds with Node (no Docker needed), and gives you an https URL.
-#
-# Set ANTHROPIC_API_KEY and WEBHOOK_SECRET in the service's Environment tab
-# (they're marked sync:false so they're never read from git).
+# See RENDER.md for the full walkthrough.
+
 services:
   - type: web
     name: tradingview-claude-dashboard
     runtime: node
-    plan: free              # free spins down when idle; use "starter" for always-on webhooks
-    region: frankfurt       # closest Render region to South Africa
-    buildCommand: npm ci
-    startCommand: node server.js
+    plan: starter            # always-on; free tier spins down when idle (see RENDER.md)
+    region: frankfurt        # closest Render region to South Africa
+    branch: feature-1
+    buildCommand: npm install
+    startCommand: npm start
     healthCheckPath: /health
     autoDeploy: true
     envVars:
-      - key: ANTHROPIC_MODEL
-        value: claude-opus-4-8
+      # --- secrets: set these in the Render dashboard, not in git ---
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: WEBHOOK_SECRET
         sync: false
+      # --- non-secret config ---
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-8
+      - key: DATA_FILE
+        value: /data/signals.json
+      - key: PORTFOLIO_FILE
+        value: /data/portfolio.json
+      - key: PAPER_ENABLED
+        value: "true"
+      - key: PAPER_STARTING_CASH
+        value: "100000"
+      - key: PAPER_MIN_CONFIDENCE
+        value: "0.6"
+      - key: PAPER_POSITION_PCT
+        value: "0.10"
+      - key: PAPER_MAX_POSITION_PCT
+        value: "0.25"
+      - key: PAPER_CURRENCY
+        value: R
+      # IBKR paper mirroring stays OFF on Render — IB Gateway must run on a
+      # host you control (see RENDER.md § Interactive Brokers). Leave BROKER
+      # unset to run the built-in simulator only.
+    disk:
+      name: data             # persists signals.json + portfolio.json across deploys/restarts
+      mountPath: /data
+      sizeGB: 1

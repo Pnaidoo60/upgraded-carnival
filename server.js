@@ -17,6 +17,11 @@ import { analyzeSignal, isLiveMode } from "./lib/analyzer.js";
 import { getCandles } from "./lib/prices.js";
 import { PaperBroker } from "./lib/paper.js";
 import { IbkrPaperBroker } from "./lib/brokers/ibkr.js";
+import { MarketEvents } from "./lib/events.js";
+import { assertPaperOnly, TRADING_MODE, TRADING_MODE_LABEL } from "./lib/safety.js";
+
+// Paper-only guarantee: refuse to boot if anything requests real trading.
+assertPaperOnly();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -25,9 +30,12 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, "data", "signals
 const PORTFOLIO_FILE = process.env.PORTFOLIO_FILE || path.join(path.dirname(DATA_FILE), "portfolio.json");
 const MAX_BODY_BYTES = 64 * 1024;
 
+const EVENTS_FILE = process.env.EVENTS_FILE || path.join(__dirname, "config", "market-events.json");
+
 const store = new SignalStore(DATA_FILE);
 const broker = new PaperBroker(PORTFOLIO_FILE);
 const ibkr = new IbkrPaperBroker(); // enabled via BROKER=ibkr; paper-only by design
+const events = new MarketEvents(EVENTS_FILE); // public scheduled-event caution
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -94,7 +102,8 @@ async function handleWebhook(req, res) {
   json(res, 200, { ok: true, id: signal.id });
 
   try {
-    const analysis = await analyzeSignal(alert);
+    const eventContext = events.contextFor();
+    const analysis = await analyzeSignal(alert, { eventContext });
     store.setAnalysis(signal.id, analysis, "done");
     const decision = broker.onSignal(signal, analysis);
     // Mirror executed simulator trades to the IBKR paper account when enabled.
@@ -129,6 +138,25 @@ async function serveDashboard(res) {
   }
 }
 
+// Allowlisted static assets (PWA manifest + icons). Explicit map — no
+// user-controlled path ever touches the filesystem, so no traversal risk.
+const STATIC_ASSETS = {
+  "/manifest.webmanifest": { file: "manifest.webmanifest", type: "application/manifest+json; charset=utf-8" },
+  "/icons/icon-192.png": { file: "icons/icon-192.png", type: "image/png" },
+  "/icons/icon-512.png": { file: "icons/icon-512.png", type: "image/png" },
+  "/icons/icon-maskable-512.png": { file: "icons/icon-maskable-512.png", type: "image/png" },
+};
+
+async function serveStatic(res, asset) {
+  try {
+    const body = await readFile(path.join(__dirname, "public", asset.file));
+    res.writeHead(200, { "Content-Type": asset.type, "Cache-Control": "public, max-age=86400" });
+    res.end(body);
+  } catch {
+    json(res, 404, { error: "not found" });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
@@ -154,6 +182,9 @@ const server = http.createServer(async (req, res) => {
       const limit = Math.min(400, Math.max(20, Number(url.searchParams.get("limit")) || 180));
       return json(res, 200, await getCandles(symbol, { limit }));
     }
+    if (req.method === "GET" && url.pathname === "/api/events") {
+      return json(res, 200, { windowDays: events.windowDays, upcoming: events.upcoming() });
+    }
     if (req.method === "POST" && url.pathname === "/api/portfolio/reset") {
       const provided = req.headers["x-webhook-secret"];
       if (!secretMatches(typeof provided === "string" ? provided : "")) {
@@ -166,8 +197,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         ok: true,
         mode: isLiveMode() ? "live" : "mock",
+        tradingMode: TRADING_MODE, // always "paper" — real execution is not implemented
+        tradingModeLabel: TRADING_MODE_LABEL,
         paperTrading: broker.config.enabled,
       });
+    }
+    if (req.method === "GET" && STATIC_ASSETS[url.pathname]) {
+      return await serveStatic(res, STATIC_ASSETS[url.pathname]);
     }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       return await serveDashboard(res);
@@ -181,7 +217,12 @@ const server = http.createServer(async (req, res) => {
 
 await store.load();
 await broker.load();
+await events.load();
 server.listen(PORT, () => {
+  console.log("──────────────────────────────────────────────────────────");
+  console.log(`  TRADING MODE: ${TRADING_MODE_LABEL}`);
+  console.log("  No real-money orders are ever placed by this service.");
+  console.log("──────────────────────────────────────────────────────────");
   console.log(`TradingView x Claude dashboard listening on http://localhost:${PORT}`);
   console.log(`Analysis mode: ${isLiveMode() ? "live (Claude API)" : "mock (set ANTHROPIC_API_KEY for live analysis)"}`);
   if (!WEBHOOK_SECRET) {
