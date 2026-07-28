@@ -123,6 +123,18 @@ test("stats aggregate analyzed signals", async () => {
   assert.ok(stats.lastSignalAt);
 });
 
+test("test-signal endpoint injects a sample signal without a secret", async () => {
+  const res = await fetch(`${BASE}/api/test-signal`, { method: "POST" });
+  assert.equal(res.status, 200);
+  const { ok, id, alert } = await res.json();
+  assert.equal(ok, true);
+  assert.equal(alert.test, true);
+  assert.ok(alert.symbol && alert.side && alert.price);
+  const signal = await waitForAnalysis(id);
+  assert.equal(signal.analysisStatus, "done");
+  assert.equal(signal.alert.strategy, "dashboard-test");
+});
+
 test("paper portfolio executes confident signals and exposes /api/portfolio", async () => {
   // buy SOLUSD (rich payload → mock confidence 0.88 ≥ 0.6 threshold)
   let res = await fetch(`${BASE}/webhook`, {

@@ -100,13 +100,17 @@ async function handleWebhook(req, res) {
   const signal = store.add(alert);
   // Respond immediately so TradingView doesn't retry, then analyze async.
   json(res, 200, { ok: true, id: signal.id });
+  processSignal(signal, alert);
+}
 
+// Analyze a stored signal and feed the paper broker (shared by the webhook
+// and the test-signal endpoint). Runs after the HTTP response is sent.
+async function processSignal(signal, alert) {
   try {
     const eventContext = events.contextFor();
     const analysis = await analyzeSignal(alert, { eventContext });
     store.setAnalysis(signal.id, analysis, "done");
     const decision = broker.onSignal(signal, analysis);
-    // Mirror executed simulator trades to the IBKR paper account when enabled.
     if (decision.executed && decision.trade && ibkr.isEnabled()) {
       try {
         const result = await ibkr.placeOrder({
@@ -126,6 +130,31 @@ async function handleWebhook(req, res) {
     console.error(`analysis failed for signal ${signal.id}:`, err.message);
     store.setAnalysis(signal.id, { error: err.message }, "failed");
   }
+}
+
+// A random, clearly-labelled sample alert for the dashboard "Send test signal"
+// button. Lets you exercise the whole pipeline without a terminal or TradingView.
+function makeTestAlert() {
+  const picks = [
+    { symbol: "NASDAQ:AAPL", price: 210 }, { symbol: "NASDAQ:NVDA", price: 132 },
+    { symbol: "JSE:NPN", price: 3200 }, { symbol: "JSE:SOL", price: 96 }, { symbol: "JSE:SHP", price: 248 },
+  ];
+  const p = picks[Math.floor(Math.random() * picks.length)];
+  const buy = Math.random() > 0.4;
+  // indicators mostly aligned with the side, with a little noise
+  const align = Math.random() > 0.3;
+  return {
+    symbol: p.symbol,
+    side: buy ? "buy" : "sell",
+    price: p.price,
+    timeframe: "1h",
+    strategy: "dashboard-test",
+    rsi: buy ? (align ? 58 : 78) : (align ? 44 : 28),
+    macd_hist: (buy === align ? 0.5 : -0.5),
+    trend: buy ? (align ? "up" : "down") : (align ? "down" : "up"),
+    volume_vs_avg: align ? 1.6 : 0.7,
+    test: true,
+  };
 }
 
 async function serveDashboard(res) {
@@ -184,6 +213,16 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/events") {
       return json(res, 200, { windowDays: events.windowDays, upcoming: events.upcoming() });
+    }
+    if (req.method === "POST" && url.pathname === "/api/test-signal") {
+      if (process.env.TEST_SIGNALS_ENABLED === "false") {
+        return json(res, 403, { error: "test signals disabled" });
+      }
+      const alert = makeTestAlert();
+      const signal = store.add(alert);
+      json(res, 200, { ok: true, id: signal.id, alert });
+      processSignal(signal, alert);
+      return;
     }
     if (req.method === "POST" && url.pathname === "/api/portfolio/reset") {
       const provided = req.headers["x-webhook-secret"];

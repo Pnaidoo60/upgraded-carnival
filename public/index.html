@@ -135,6 +135,7 @@
     <h1>TradingView × Claude — Signal Dashboard</h1>
     <span class="paper-badge" id="paperGuarantee" title="Real-money execution is not implemented in this codebase.">● PAPER TRADING — no real orders</span>
     <span class="mode-badge" id="modeBadge">connecting…</span>
+    <button id="testBtn" style="margin-left:auto;background:var(--series-line);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">Send test signal</button>
   </header>
 
   <div id="eventBanner" class="card" style="display:none;border-color:var(--series-hold);margin-bottom:16px">
@@ -984,6 +985,24 @@ function initTradingView() {
   else addEmas();
 }
 initTradingView();
+
+document.getElementById("testBtn").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Sending…";
+  try {
+    const r = await fetch("/api/test-signal", { method: "POST" });
+    if (!r.ok) throw new Error("request failed");
+    btn.textContent = "✓ Sent — watch below";
+    setTimeout(refresh, 400);
+    setTimeout(refresh, 1500);
+  } catch {
+    btn.textContent = "✗ Failed — retry";
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = label; }, 2500);
+  }
+});
 
 refresh();
 setInterval(refresh, 5000);
