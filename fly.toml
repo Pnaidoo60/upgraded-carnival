@@ -1,0 +1,32 @@
+# Fly.io deploy config for the TradingView x Claude dashboard.
+#
+# One-command deploy (from the repo root, with flyctl installed + logged in):
+#   fly launch --copy-config --now      # first time: creates the app, deploys
+#   fly deploy                          # subsequent deploys
+#
+# Then set your secrets (kept out of git):
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-... WEBHOOK_SECRET=$(openssl rand -hex 24)
+#
+# `fly launch` will offer to pick a unique app name; keep the rest of this file.
+
+app = "upgraded-carnival"        # change to a globally-unique name if taken
+primary_region = "jnb"           # Johannesburg — closest region to you
+
+[build]
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"

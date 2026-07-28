@@ -1,0 +1,32 @@
+name: Deploy to Fly.io
+
+# Auto-deploys on every push to the default branch — but only once you've
+# added a FLY_API_TOKEN secret (Repo → Settings → Secrets and variables →
+# Actions). Until then the deploy steps are skipped, so the workflow stays
+# green instead of failing.
+#
+# Get a token with:  fly tokens create deploy -a <your-app-name>
+
+on:
+  push:
+    branches: [feature-1, main, master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up flyctl
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Deploy
+        if: ${{ env.FLY_API_TOKEN != '' }}
+        run: flyctl deploy --remote-only
+      - name: Skipped (no token)
+        if: ${{ env.FLY_API_TOKEN == '' }}
+        run: echo "FLY_API_TOKEN not set — skipping deploy. Add the secret to enable auto-deploy."

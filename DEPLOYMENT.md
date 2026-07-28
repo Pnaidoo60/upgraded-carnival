@@ -13,7 +13,38 @@ TradingView alert ──HTTPS──▶ this server (your VPS) ──▶ Claude A
                                     └─▶ IB Gateway (paper, port 4002) ──▶ IBKR paper account
 ```
 
-## 1. Get the server a public HTTPS URL
+## 0. Fastest path: one-command deploy to a real URL
+
+If you just want the dashboard live on an HTTPS URL (no VPS, no reverse
+proxy), the repo ships ready-to-deploy config. Both give you a public URL
+with TLS handled for you.
+
+**Fly.io** (`fly.toml`, region set to Johannesburg) — the most literal
+one-command deploy:
+
+```bash
+# once: install flyctl (https://fly.io/docs/flyctl/install) and `fly auth login`
+fly launch --copy-config --now          # builds the Dockerfile, deploys, prints your URL
+fly secrets set ANTHROPIC_API_KEY=sk-ant-... WEBHOOK_SECRET=$(openssl rand -hex 24)
+```
+
+Your dashboard is then at `https://<app-name>.fly.dev` and the webhook at
+`https://<app-name>.fly.dev/webhook`.
+
+**Render** (`render.yaml` blueprint) — git-push based, has a free tier:
+push this repo to GitHub, then in Render choose **New + → Blueprint** and
+select the repo. It builds with Node and gives you an `onrender.com` URL.
+Set `ANTHROPIC_API_KEY` and `WEBHOOK_SECRET` in the service's Environment
+tab. (Free instances sleep when idle — fine for trying it out, but use a
+paid instance if you need webhooks answered instantly.)
+
+Both build from the same app; the `Dockerfile` also runs on Railway, Cloud
+Run, or any container host. Note that written state (`data/`) is ephemeral
+on these platforms and resets on redeploy — attach a volume if you need it
+to persist. For the IBKR paper-trading loop, use the VPS route below (IB
+Gateway needs to run alongside the server).
+
+## 1. Get the server a public HTTPS URL (VPS route)
 
 TradingView webhooks only deliver to **ports 80/443** on a publicly
 reachable host, so the server must run somewhere public — a small VPS
