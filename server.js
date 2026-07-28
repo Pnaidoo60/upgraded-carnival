@@ -17,6 +17,10 @@ import { analyzeSignal, isLiveMode } from "./lib/analyzer.js";
 import { PaperBroker } from "./lib/paper.js";
 import { IbkrPaperBroker } from "./lib/brokers/ibkr.js";
 import { MarketEvents } from "./lib/events.js";
+import { assertPaperOnly, TRADING_MODE, TRADING_MODE_LABEL } from "./lib/safety.js";
+
+// Paper-only guarantee: refuse to boot if anything requests real trading.
+assertPaperOnly();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -187,6 +191,8 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         ok: true,
         mode: isLiveMode() ? "live" : "mock",
+        tradingMode: TRADING_MODE, // always "paper" — real execution is not implemented
+        tradingModeLabel: TRADING_MODE_LABEL,
         paperTrading: broker.config.enabled,
       });
     }
@@ -207,6 +213,10 @@ await store.load();
 await broker.load();
 await events.load();
 server.listen(PORT, () => {
+  console.log("──────────────────────────────────────────────────────────");
+  console.log(`  TRADING MODE: ${TRADING_MODE_LABEL}`);
+  console.log("  No real-money orders are ever placed by this service.");
+  console.log("──────────────────────────────────────────────────────────");
   console.log(`TradingView x Claude dashboard listening on http://localhost:${PORT}`);
   console.log(`Analysis mode: ${isLiveMode() ? "live (Claude API)" : "mock (set ANTHROPIC_API_KEY for live analysis)"}`);
   if (!WEBHOOK_SECRET) {
