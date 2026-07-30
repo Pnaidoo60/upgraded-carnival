@@ -1,4 +1,5 @@
 // TradingView x Claude signal analysis dashboard server.
+// redeploy 2026-07-30T12:41:39.749Z — ensure Send-test-signal button is live
 //
 // Endpoints:
 //   POST /webhook       — TradingView alert webhook (responds 200 fast, analyzes async)
